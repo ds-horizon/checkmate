@@ -93,6 +93,7 @@ const RunsDao = {
     filterType,
     sectionIds,
     platformIds,
+    priorityIds,
   }: ICreateRuns) => {
     try {
       const resp = await dbClient.transaction(async (trx) => {
@@ -116,6 +117,9 @@ const RunsDao = {
 
         if (platformIds?.length)
           whereClauses.push(inArray(tests.platformId, platformIds))
+
+        if (priorityIds?.length)
+          whereClauses.push(inArray(tests.priorityId, priorityIds))
 
         if (sectionIds?.length)
           andWhereCluase.push(inArray(tests.sectionId, sectionIds))

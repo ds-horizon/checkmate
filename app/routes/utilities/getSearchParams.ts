@@ -92,6 +92,9 @@ const SearchParams = {
     const platformIds = searchParams.platformIds
       ? jsonParseWithError(searchParams.platformIds, 'platformIds')
       : undefined
+    const priorityIds = searchParams.priorityIds
+      ? jsonParseWithError(searchParams.priorityIds, 'priorityIds')
+      : undefined
     const filterType = searchParams.filterType
       ? (searchParams.filterType as ITestsController['filterType'])
       : 'and'
@@ -106,6 +109,7 @@ const SearchParams = {
       platformIds,
       squadIds,
       labelIds,
+      priorityIds,
       filterType,
       includeTestIds,
     }

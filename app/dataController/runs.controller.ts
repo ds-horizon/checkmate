@@ -16,12 +16,13 @@ export interface ICreateRuns {
   projectId: number
   runName: string
   runDescription?: string | null
-  labelIds?: number[]
-  squadIds?: number[]
-  sectionIds?: number[]
+  labelIds?: number[] | null
+  squadIds?: number[] | null
+  sectionIds?: number[] | null
   createdBy: number
   filterType?: 'and' | 'or'
-  platformIds?: number[]
+  platformIds?: number[] | null
+  priorityIds?: number[] | null
 }
 
 export interface IUpdateRun {

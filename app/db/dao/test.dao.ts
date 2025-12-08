@@ -168,6 +168,7 @@ const TestsDao = {
     textSearch,
     sectionIds,
     platformIds,
+    priorityIds,
   }: ITestsCountController) {
     try {
       const andWhereCluase: any[] = [
@@ -194,6 +195,14 @@ const TestsDao = {
           whereClauses.push(inArray(tests.platformId, platformIds))
         else
           throw new Error('Empty platformIds provided', {
+            cause: ErrorCause.INVALID_PARAMS,
+          })
+
+      if (priorityIds)
+        if (priorityIds.length > 0)
+          whereClauses.push(inArray(tests.priorityId, priorityIds))
+        else
+          throw new Error('Empty priorityIds provided', {
             cause: ErrorCause.INVALID_PARAMS,
           })
 

@@ -45,6 +45,7 @@ export interface ITestsCountController {
   textSearch?: string
   sectionIds?: number[]
   platformIds?: number[]
+  priorityIds?: number[]
 }
 
 export interface IUpdateTests {

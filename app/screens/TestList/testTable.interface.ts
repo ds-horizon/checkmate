@@ -24,6 +24,7 @@ export enum FilterNames {
   Label = 'Label',
   Status = 'Status',
   Platform = 'Platform',
+  Priority = 'Priority',
 }
 
 export enum EditableProperties {

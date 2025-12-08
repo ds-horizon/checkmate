@@ -16,11 +16,12 @@ const CreateRunRequestSchema = z.object({
     .min(5, {message: 'Run name must be at least 5 characters'})
     .max(50, {message: 'Run name must be at most 50 characters'}),
   runDescription: z.string().optional().nullable(),
-  labelIds: z.array(z.number()).optional(),
-  squadIds: z.array(z.number()).optional(),
-  sectionIds: z.array(z.number()).optional(),
+  labelIds: z.array(z.number()).optional().nullable(),
+  squadIds: z.array(z.number()).optional().nullable(),
+  sectionIds: z.array(z.number()).optional().nullable(),
   filterType: z.enum(['and', 'or']).optional().nullable(),
-  platformIds: z.array(z.number()).optional(),
+  platformIds: z.array(z.number()).optional().nullable(),
+  priorityIds: z.array(z.number()).optional().nullable(),
 })
 
 export type CreateRunRequestAPIType = z.infer<typeof CreateRunRequestSchema>

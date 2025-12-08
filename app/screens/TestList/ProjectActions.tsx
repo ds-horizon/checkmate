@@ -1,4 +1,3 @@
-import {getInitialSelectedSections} from '@components/SectionList/utils'
 import {useCustomNavigate} from '@hooks/useCustomNavigate'
 import {PlusCircledIcon} from '@radix-ui/react-icons'
 import {useFetcher, useParams} from '@remix-run/react'
@@ -11,12 +10,10 @@ import {
 } from '@ui/dropdown-menu'
 import {toast} from '@ui/use-toast'
 import {MouseEvent, useEffect, useState} from 'react'
-import {useSearchParams} from 'react-router-dom'
 import {Loader} from '~/components/Loader/Loader'
 import {API} from '~/routes/utilities/api'
-import {safeJsonParse} from '~/routes/utilities/utils'
-import {cn} from '~/ui/utils'
 import {AddSquadsLabelsDialog} from './AddSquadsLabelsDialog'
+import {AddRunDialog} from './AddRunDialog'
 
 enum Actions {
   AddTest = 'Test',
@@ -51,7 +48,6 @@ export const ProjectActions = () => {
   const navigate = useCustomNavigate()
   const projectId = useParams().projectId ? Number(useParams().projectId) : 0
   const saveChanges = useFetcher<any>()
-  const [searchParams, _] = useSearchParams()
   const createRun = useFetcher<any>()
   const [actionDD, setActionDD] = useState<boolean>(false)
   const [addSquadDialog, setAddSquadDialog] = useState<boolean>(false)
@@ -140,19 +136,27 @@ export const ProjectActions = () => {
     })
   }
 
-  const handleSaveChangesRuns = (value: string, description?: string) => {
-    const data = {
-      runName: value,
-      runDescription: description ? description : null,
-      squadIds: safeJsonParse(searchParams.get('squadIds') as string),
-      labelIds: safeJsonParse(searchParams.get('labelIds') as string),
-      platformIds: safeJsonParse(searchParams.get('platformIds') as string),
-      sectionIds: getInitialSelectedSections(searchParams),
+  const handleSaveChangesRuns = (data: {
+    runName: string
+    runDescription: string
+    squadIds: number[]
+    labelIds: number[]
+    platformIds: number[]
+    priorityIds: number[]
+    filterType: 'and' | 'or'
+  }) => {
+    const postData = {
+      runName: data.runName,
+      runDescription: data.runDescription || null,
+      squadIds: data.squadIds.length > 0 ? data.squadIds : null,
+      labelIds: data.labelIds.length > 0 ? data.labelIds : null,
+      platformIds: data.platformIds.length > 0 ? data.platformIds : null,
+      priorityIds: data.priorityIds.length > 0 ? data.priorityIds : null,
       projectId,
-      filterType: searchParams.get('filterType'),
+      filterType: data.filterType,
     }
 
-    createRun.submit(data, {
+    createRun.submit(postData, {
       method: 'POST',
       action: `/${API.AddRun}`,
       encType: 'application/json',
@@ -196,8 +200,7 @@ export const ProjectActions = () => {
         state={addSquadDialog}
         setState={setAddSquadDialog}
       />
-      <AddSquadsLabelsDialog
-        heading={Actions.CreateRun}
+      <AddRunDialog
         handleSaveChanges={handleSaveChangesRuns}
         state={addRunDialog}
         setState={setAddRunDialog}

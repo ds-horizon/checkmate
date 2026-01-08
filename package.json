@@ -47,7 +47,7 @@
     "@radix-ui/react-tooltip": "^1.1.8",
     "@remix-run/express": "2.9.2",
     "@remix-run/node": "2.9.2",
-    "@remix-run/react": "2.9.2",
+    "@remix-run/react": "2.17.1",
     "@remix-run/serve": "2.9.2",
     "@remix-run/server-runtime": "2.9.2",
     "@tanstack/react-table": "8.17.3",

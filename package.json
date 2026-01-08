@@ -49,7 +49,7 @@
     "@remix-run/node": "2.9.2",
     "@remix-run/react": "2.9.2",
     "@remix-run/serve": "2.9.2",
-    "@remix-run/server-runtime": "2.9.2",
+    "@remix-run/server-runtime": "2.17.3",
     "@tanstack/react-table": "8.17.3",
     "@types/uuid": "10.0.0",
     "casbin": "5.30.0",

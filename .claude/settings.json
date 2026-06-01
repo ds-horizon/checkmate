@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(NODE_ENV=test node --expose-gc --no-compilation-cache ./node_modules/jest/bin/jest --maxWorkers=70% --watchAll=false --clearMocks)",
+      "Bash(which node *)",
+      "Read(//Users/ashutoshpalania/.nvm/versions/node/**)",
+      "Bash(/Users/ashutoshpalania/.nvm/versions/node/v22.21.1/bin/node --expose-gc --no-compilation-cache ./node_modules/jest/bin/jest --maxWorkers=70% --watchAll=false --clearMocks)"
+    ]
+  }
+}

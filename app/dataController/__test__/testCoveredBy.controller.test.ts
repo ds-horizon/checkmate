@@ -19,4 +19,20 @@ describe('TestCoveredByController', () => {
     expect(TestCoveredByDao.getAllTestCoveredBy).toHaveBeenCalledWith(param);
     expect(TestCoveredByDao.getAllTestCoveredBy).toHaveBeenCalledTimes(1);
   });
+
+  it('should return an empty array when no entries exist', async () => {
+    (TestCoveredByDao.getAllTestCoveredBy as jest.Mock).mockResolvedValue([]);
+
+    const result = await TestCoveredByController.getAllTestCoveredBy({ orgId: 1 });
+
+    expect(result).toEqual([]);
+  });
+
+  it('should throw when DAO throws', async () => {
+    (TestCoveredByDao.getAllTestCoveredBy as jest.Mock).mockRejectedValue(new Error('DB error'));
+
+    await expect(
+      TestCoveredByController.getAllTestCoveredBy({ orgId: 1 }),
+    ).rejects.toThrow('DB error');
+  });
 });

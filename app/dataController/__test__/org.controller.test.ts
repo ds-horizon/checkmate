@@ -28,4 +28,24 @@ describe('OrgController', () => {
     expect(OrganisationDao.getOrganisationInfo).toHaveBeenCalledWith(1);
     expect(OrganisationDao.getOrganisationInfo).toHaveBeenCalledTimes(1);
   });
+
+  it('should return an empty list when no organisations exist', async () => {
+    (OrganisationDao.getOrganisationList as jest.Mock).mockResolvedValue([]);
+
+    const result = await OrgController.getOrgList();
+
+    expect(result).toEqual([]);
+  });
+
+  it('should throw when getOrgList DAO throws', async () => {
+    (OrganisationDao.getOrganisationList as jest.Mock).mockRejectedValue(new Error('DB error'));
+
+    await expect(OrgController.getOrgList()).rejects.toThrow('DB error');
+  });
+
+  it('should throw when getOrgInfo DAO throws', async () => {
+    (OrganisationDao.getOrganisationInfo as jest.Mock).mockRejectedValue(new Error('Not found'));
+
+    await expect(OrgController.getOrgInfo(999)).rejects.toThrow('Not found');
+  });
 });

@@ -33,6 +33,12 @@ import {
   squadListPlaceholder,
 } from './utils'
 import {getSectionHierarchy} from '@components/SectionList/utils'
+import {
+  MediaUploader,
+  MediaGallery,
+  AttachmentSection,
+  Attachment,
+} from '~/components/Attachments'
 
 export default function EditTestPage({
   source,
@@ -70,14 +76,29 @@ export default function EditTestPage({
 
   const testUpdationFetcher = useFetcher<any>()
   const addTestFetcher = useFetcher<any>()
+  const attachmentsFetcher = useFetcher<{data: Attachment[]}>()
+  const deleteAttachmentFetcher = useFetcher<any>()
+  const [attachments, setAttachments] = useState<Attachment[]>([])
+  const [pendingDeletions, setPendingDeletions] = useState<Set<number>>(new Set())
 
   useEffect(() => {
     if (source !== 'addTest') {
       testDetailsFetcher.load(
         `/${API.GetTestDetails}?projectId=${projectId}&testId=${testId}`,
       )
+      // Load attachments for existing test
+      attachmentsFetcher.load(
+        `/${API.GetTestAttachments}?projectId=${projectId}&testId=${testId}`,
+      )
     }
   }, [projectId, testId])
+
+  // Update attachments when fetcher completes
+  useEffect(() => {
+    if (attachmentsFetcher.data?.data) {
+      setAttachments(attachmentsFetcher.data.data)
+    }
+  }, [attachmentsFetcher.data])
 
   const [formData, setFormData] = useState<TestFormData>(
     source === 'addTest'
@@ -234,7 +255,27 @@ export default function EditTestPage({
     [setFormData],
   )
 
-  const handleEditSubmit = useCallback(() => {
+  const handleEditSubmit = useCallback(async () => {
+    // First, delete all pending attachments
+    if (pendingDeletions.size > 0) {
+      for (const attachmentId of pendingDeletions) {
+        deleteAttachmentFetcher.submit(
+          {attachmentId, projectId},
+          {
+            method: 'DELETE',
+            action: `/${API.DeleteTestAttachment}`,
+            encType: 'application/json',
+          },
+        )
+      }
+      // Clear pending deletions and update attachments state
+      setAttachments((prev) =>
+        prev.filter((a) => !pendingDeletions.has(a.attachmentId)),
+      )
+      setPendingDeletions(new Set())
+    }
+
+    // Then submit the form update
     testUpdationFetcher.submit(
       {...formData, projectId, testId},
       {
@@ -243,7 +284,7 @@ export default function EditTestPage({
         encType: 'application/json',
       },
     )
-  }, [formData, projectId, testId])
+  }, [formData, projectId, testId, pendingDeletions])
 
   const handleAddSubmit = useCallback(
     (addAndNext = false) => {
@@ -325,6 +366,48 @@ export default function EditTestPage({
     navigate(-1)
   }, [])
 
+  // Attachment handlers
+  const handleAttachmentUploadComplete = useCallback((attachment: Attachment) => {
+    setAttachments((prev) => [...prev, attachment])
+    toast({
+      variant: 'success',
+      description: 'Attachment uploaded successfully',
+    })
+  }, [])
+
+  const handleAttachmentUploadError = useCallback((error: string) => {
+    toast({
+      variant: 'destructive',
+      description: error,
+    })
+  }, [])
+
+  // Soft delete - mark attachment for deletion (will be deleted on save)
+  const handleDeleteAttachment = useCallback(
+    (attachmentId: number) => {
+      setPendingDeletions((prev) => new Set([...prev, attachmentId]))
+      toast({
+        description: 'Attachment marked for deletion. Click "Update Test" to confirm.',
+      })
+    },
+    [],
+  )
+
+  // Undo soft delete - restore an attachment
+  const handleUndoDelete = useCallback(
+    (attachmentId: number) => {
+      setPendingDeletions((prev) => {
+        const newSet = new Set(prev)
+        newSet.delete(attachmentId)
+        return newSet
+      })
+      toast({
+        description: 'Attachment restored',
+      })
+    },
+    [],
+  )
+
   return (
     <div className="flex flex-col h-full pt-6">
       {/* Header Section */}
@@ -342,6 +425,13 @@ export default function EditTestPage({
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Unsaved changes indicator */}
+            {pendingDeletions.size > 0 && (
+              <span className="text-sm text-amber-600 bg-amber-50 px-3 py-1 rounded-full border border-amber-200">
+                {pendingDeletions.size} unsaved change{pendingDeletions.size !== 1 ? 's' : ''}
+              </span>
+            )}
+            
             {source === 'addTest' ? (
               <>
                 <Button
@@ -683,6 +773,65 @@ export default function EditTestPage({
               value={formData?.additionalGroups ?? ''}
             />
           </div>
+        </div>
+
+        {/* Attachments Card */}
+        <div className="bg-white rounded-lg border border-slate-200 p-6">
+          <h2 className="text-lg font-semibold text-slate-900 mb-5">
+            Expected Behavior Attachments
+          </h2>
+          
+          {source === 'addTest' ? (
+            // Show info message when creating a new test
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <svg className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div>
+                  <p className="text-sm font-medium text-blue-800">
+                    Attachments available after creation
+                  </p>
+                  <p className="text-sm text-blue-600 mt-1">
+                    Create the test case first, then edit it to add screenshots or videos 
+                    showing the expected behavior. These attachments will be visible in all test runs.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            // Show upload interface when editing an existing test
+            <>
+              <p className="text-sm text-slate-500 mb-4">
+                Upload screenshots or videos showing the expected behavior for this test case.
+                These attachments will be visible in all test runs.
+              </p>
+              
+              {/* Attachment Gallery */}
+              {attachments.length > 0 && (
+                <div className="mb-4">
+                  <MediaGallery
+                    attachments={attachments}
+                    onDelete={handleDeleteAttachment}
+                    onUndoDelete={handleUndoDelete}
+                    pendingDeletions={pendingDeletions}
+                    canDelete={true}
+                    emptyMessage="No attachments yet"
+                  />
+                </div>
+              )}
+              
+              {/* Upload Component */}
+              <MediaUploader
+                projectId={projectId}
+                testId={testId}
+                attachmentType="expected"
+                onUploadComplete={handleAttachmentUploadComplete}
+                onUploadError={handleAttachmentUploadError}
+                currentCount={attachments.filter(a => !pendingDeletions.has(a.attachmentId)).length}
+              />
+            </>
+          )}
         </div>
       </div>
     </div>

@@ -1,0 +1,1295 @@
+---
+title: Cloud Deployment Guide
+description: Deploy Checkmate on AWS, GCP, or other cloud providers
+---
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+import { Card, CardGrid } from '@site/src/components/Card';
+import { Steps } from '@site/src/components/Steps';
+
+## Overview
+
+This guide covers deploying Checkmate to production environments on major cloud providers. Choose the deployment method that best fits your infrastructure.
+
+### Deployment Options
+
+| Method | Best For | Complexity |
+|--------|----------|------------|
+| **Docker on VM** | Simple deployments, full control | Low |
+| **Container Services** | Auto-scaling, managed infrastructure | Medium |
+| **Kubernetes** | Enterprise, multi-region, complex setups | High |
+
+---
+
+## Prerequisites
+
+Before deploying, ensure you have:
+
+- ✅ A domain name (e.g., `checkmate.yourdomain.com`)
+- ✅ Google OAuth credentials configured for your production domain
+- ✅ SSL certificate (or use Let's Encrypt)
+- ✅ Cloud provider account (AWS/GCP)
+
+### Production Google OAuth Setup
+
+Update your Google OAuth configuration for production:
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials
+2. Edit your OAuth 2.0 Client ID
+3. Add production URLs:
+   - **Authorized JavaScript origins:** `https://checkmate.yourdomain.com`
+   - **Authorized redirect URIs:** `https://checkmate.yourdomain.com/callback`
+
+---
+
+## Environment Variables for Production
+
+Create a `.env` file with production values:
+
+```env
+# ===========================================
+# PRODUCTION ENVIRONMENT CONFIGURATION
+# ===========================================
+
+# Database Connection
+# Format: mysql://USER:PASSWORD@HOST:PORT/DATABASE
+DB_URL=mysql://checkmate_user:STRONG_PASSWORD@your-db-host:3306/checkmate
+DOCKER_DB_URL=mysql://checkmate_user:STRONG_PASSWORD@your-db-host:3306/checkmate
+
+# MySQL Configuration (for docker-compose)
+MYSQL_ROOT_PASSWORD=YOUR_ROOT_PASSWORD
+MYSQL_DATABASE=checkmate
+MYSQL_USER=checkmate_user
+MYSQL_PASSWORD=STRONG_PASSWORD
+
+# Google OAuth (REQUIRED)
+GOOGLE_CLIENT_ID=your_production_client_id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your_production_client_secret
+
+# Session Security (REQUIRED - generate a strong random string)
+# Generate with: openssl rand -base64 64
+SESSION_SECRET=your_very_long_random_session_secret_minimum_32_characters
+
+# Server Configuration
+PORT=3000
+NODE_ENV=production
+
+# Application URL (used for OAuth callbacks)
+APP_URL=https://checkmate.yourdomain.com
+
+# ===========================================
+# FILE STORAGE CONFIGURATION
+# ===========================================
+# Provider: 'local', 's3', or 'gcs'
+STORAGE_PROVIDER=s3
+
+# For S3 (AWS or S3-compatible)
+STORAGE_BUCKET=your-checkmate-bucket
+STORAGE_REGION=us-east-1
+STORAGE_ACCESS_KEY_ID=your-access-key
+STORAGE_SECRET_ACCESS_KEY=your-secret-key
+# STORAGE_ENDPOINT=https://custom-endpoint.com  # For S3-compatible services
+# STORAGE_PUBLIC_URL=https://cdn.yourdomain.com  # CDN URL
+
+# For GCS (Google Cloud Storage)
+# GCS_PROJECT_ID=your-gcp-project
+# GCS_KEY_FILENAME=/path/to/service-account.json
+```
+
+:::danger Security Warning
+- Never commit `.env` files to version control
+- Use strong, unique passwords for database
+- Generate `SESSION_SECRET` using `openssl rand -base64 64`
+- Rotate secrets periodically
+:::
+
+---
+
+## File Storage Configuration (S3/GCS)
+
+Checkmate supports three storage backends for file attachments (test screenshots, videos, etc.):
+
+| Provider | Best For | Configuration |
+|----------|----------|---------------|
+| **Local** | Development, single server | Default, no config needed |
+| **S3** | AWS deployments, S3-compatible services | AWS credentials + bucket |
+| **GCS** | GCP deployments | Service account + bucket |
+
+### Storage Environment Variables
+
+Add these to your `.env` file based on your chosen storage provider:
+
+<Tabs>
+  <TabItem value="s3-storage" label="AWS S3" default>
+    ### Amazon S3 Configuration
+    
+    ```env
+    # Storage Provider
+    STORAGE_PROVIDER=s3
+    
+    # S3 Bucket Configuration
+    STORAGE_BUCKET=your-checkmate-bucket
+    STORAGE_REGION=us-east-1
+    
+    # AWS Credentials
+    # Option 1: IAM credentials (recommended for EC2 with IAM roles)
+    # Leave these empty if using IAM roles attached to EC2/ECS
+    
+    # Option 2: Access keys (for non-AWS or cross-account)
+    STORAGE_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+    STORAGE_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+    
+    # Optional: Custom endpoint for S3-compatible services
+    # STORAGE_ENDPOINT=https://s3.us-east-1.amazonaws.com
+    
+    # Optional: CDN URL for serving files (e.g., CloudFront)
+    # STORAGE_PUBLIC_URL=https://d1234567890.cloudfront.net
+    ```
+    
+    #### Create S3 Bucket
+    
+    ```bash
+    # Create bucket
+    aws s3 mb s3://your-checkmate-bucket --region us-east-1
+    
+    # Set bucket policy for private access (recommended)
+    cat > bucket-policy.json << 'EOF'
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Sid": "AllowCheckmateAccess",
+          "Effect": "Allow",
+          "Principal": {
+            "AWS": "arn:aws:iam::YOUR_ACCOUNT_ID:role/checkmate-app-role"
+          },
+          "Action": [
+            "s3:GetObject",
+            "s3:PutObject",
+            "s3:DeleteObject",
+            "s3:ListBucket"
+          ],
+          "Resource": [
+            "arn:aws:s3:::your-checkmate-bucket",
+            "arn:aws:s3:::your-checkmate-bucket/*"
+          ]
+        }
+      ]
+    }
+    EOF
+    
+    aws s3api put-bucket-policy --bucket your-checkmate-bucket --policy file://bucket-policy.json
+    ```
+    
+    #### IAM Policy for EC2/ECS (Recommended)
+    
+    Instead of access keys, attach this IAM policy to your EC2 instance role or ECS task role:
+    
+    ```json
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": [
+            "s3:GetObject",
+            "s3:PutObject",
+            "s3:DeleteObject",
+            "s3:ListBucket",
+            "s3:GetObjectAcl",
+            "s3:PutObjectAcl"
+          ],
+          "Resource": [
+            "arn:aws:s3:::your-checkmate-bucket",
+            "arn:aws:s3:::your-checkmate-bucket/*"
+          ]
+        }
+      ]
+    }
+    ```
+    
+    #### Optional: CloudFront CDN Setup
+    
+    For better performance, serve files through CloudFront:
+    
+    ```bash
+    # Create CloudFront distribution pointing to S3 bucket
+    # Then set STORAGE_PUBLIC_URL to your CloudFront domain
+    STORAGE_PUBLIC_URL=https://d1234567890.cloudfront.net
+    ```
+    
+  </TabItem>
+  
+  <TabItem value="gcs-storage" label="Google Cloud Storage">
+    ### Google Cloud Storage Configuration
+    
+    ```env
+    # Storage Provider
+    STORAGE_PROVIDER=gcs
+    
+    # GCS Bucket Configuration
+    STORAGE_BUCKET=your-checkmate-bucket
+    
+    # GCP Project
+    GCS_PROJECT_ID=your-gcp-project-id
+    
+    # Authentication - Option 1: Service Account Key File
+    GCS_KEY_FILENAME=/app/credentials/gcs-service-account.json
+    
+    # Authentication - Option 2: Workload Identity (GKE/Cloud Run)
+    # Leave GCS_KEY_FILENAME empty - uses default credentials
+    
+    # Optional: CDN URL (e.g., Cloud CDN)
+    # STORAGE_PUBLIC_URL=https://your-cdn-domain.com
+    ```
+    
+    #### Create GCS Bucket
+    
+    ```bash
+    # Create bucket
+    gcloud storage buckets create gs://your-checkmate-bucket \
+      --location=us-central1 \
+      --uniform-bucket-level-access
+    
+    # Set lifecycle policy (optional - auto-delete old files)
+    cat > lifecycle.json << 'EOF'
+    {
+      "lifecycle": {
+        "rule": [
+          {
+            "action": {"type": "Delete"},
+            "condition": {"age": 365}
+          }
+        ]
+      }
+    }
+    EOF
+    
+    gcloud storage buckets update gs://your-checkmate-bucket --lifecycle-file=lifecycle.json
+    ```
+    
+    #### Create Service Account
+    
+    ```bash
+    # Create service account
+    gcloud iam service-accounts create checkmate-storage \
+      --display-name="Checkmate Storage Service Account"
+    
+    # Grant storage permissions
+    gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+      --member="serviceAccount:checkmate-storage@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+      --role="roles/storage.objectAdmin"
+    
+    # Create and download key file
+    gcloud iam service-accounts keys create gcs-service-account.json \
+      --iam-account=checkmate-storage@YOUR_PROJECT_ID.iam.gserviceaccount.com
+    ```
+    
+    #### Mount Key File in Docker
+    
+    Add to `docker-compose.yml`:
+    
+    ```yaml
+    services:
+      checkmate-app:
+        # ... other config
+        volumes:
+          - ./gcs-service-account.json:/app/credentials/gcs-service-account.json:ro
+        environment:
+          GCS_KEY_FILENAME: /app/credentials/gcs-service-account.json
+    ```
+    
+    #### For Cloud Run (Workload Identity)
+    
+    No key file needed - use Workload Identity:
+    
+    ```bash
+    # Grant storage access to Cloud Run service account
+    gcloud run services update checkmate \
+      --service-account=checkmate-storage@YOUR_PROJECT_ID.iam.gserviceaccount.com
+    ```
+    
+  </TabItem>
+  
+  <TabItem value="s3-compatible" label="S3-Compatible (MinIO, R2, etc.)">
+    ### S3-Compatible Services
+    
+    For MinIO, Cloudflare R2, DigitalOcean Spaces, or other S3-compatible services:
+    
+    ```env
+    # Storage Provider
+    STORAGE_PROVIDER=s3
+    
+    # Bucket Configuration
+    STORAGE_BUCKET=checkmate
+    STORAGE_REGION=auto  # or your region
+    
+    # S3-Compatible Endpoint
+    STORAGE_ENDPOINT=https://your-s3-compatible-endpoint.com
+    
+    # Credentials
+    STORAGE_ACCESS_KEY_ID=your-access-key
+    STORAGE_SECRET_ACCESS_KEY=your-secret-key
+    
+    # Public URL (if different from endpoint)
+    STORAGE_PUBLIC_URL=https://your-public-url.com/checkmate
+    ```
+    
+    #### Cloudflare R2 Example
+    
+    ```env
+    STORAGE_PROVIDER=s3
+    STORAGE_BUCKET=checkmate-attachments
+    STORAGE_REGION=auto
+    STORAGE_ENDPOINT=https://ACCOUNT_ID.r2.cloudflarestorage.com
+    STORAGE_ACCESS_KEY_ID=your-r2-access-key
+    STORAGE_SECRET_ACCESS_KEY=your-r2-secret-key
+    STORAGE_PUBLIC_URL=https://your-r2-public-domain.com
+    ```
+    
+    #### MinIO Example (Self-Hosted)
+    
+    ```env
+    STORAGE_PROVIDER=s3
+    STORAGE_BUCKET=checkmate
+    STORAGE_REGION=us-east-1
+    STORAGE_ENDPOINT=http://minio:9000
+    STORAGE_ACCESS_KEY_ID=minioadmin
+    STORAGE_SECRET_ACCESS_KEY=minioadmin
+    STORAGE_PUBLIC_URL=http://localhost:9000/checkmate
+    ```
+    
+    Add MinIO to `docker-compose.yml`:
+    
+    ```yaml
+    services:
+      minio:
+        image: minio/minio
+        container_name: checkmate-minio
+        ports:
+          - "9000:9000"
+          - "9001:9001"
+        environment:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        command: server /data --console-address ":9001"
+        volumes:
+          - minio-data:/data
+        networks:
+          - checkmate-network
+    
+    volumes:
+      minio-data:
+    ```
+    
+  </TabItem>
+  
+  <TabItem value="local-storage" label="Local Storage">
+    ### Local File Storage
+    
+    For development or single-server deployments:
+    
+    ```env
+    # Default - no configuration needed
+    STORAGE_PROVIDER=local
+    
+    # Optional: Custom storage path (default: ./uploads/attachments)
+    STORAGE_LOCAL_PATH=/app/uploads/attachments
+    
+    # Optional: Custom public URL
+    STORAGE_PUBLIC_URL=/api/v1/attachments/serve
+    ```
+    
+    #### Persist Local Storage in Docker
+    
+    Add volume mount to `docker-compose.yml`:
+    
+    ```yaml
+    services:
+      checkmate-app:
+        # ... other config
+        volumes:
+          - checkmate-uploads:/app/uploads
+    
+    volumes:
+      checkmate-uploads:
+        name: checkmate-uploads
+    ```
+    
+    :::warning Local Storage Limitations
+    - Not suitable for multi-instance deployments
+    - Files lost if container is rebuilt without volume
+    - No built-in backup or redundancy
+    - Recommend S3/GCS for production
+    :::
+    
+  </TabItem>
+</Tabs>
+
+### Install Required Packages
+
+For cloud storage providers, install the required SDK:
+
+```bash
+# For AWS S3
+yarn add @aws-sdk/client-s3 @aws-sdk/s3-request-presigner
+
+# For Google Cloud Storage
+yarn add @google-cloud/storage
+```
+
+:::tip
+If you're using Docker, the SDKs are already included in the image. Just set the environment variables.
+:::
+
+---
+
+## AWS Deployment
+
+<Tabs>
+  <TabItem value="ec2" label="EC2 + Docker" default>
+    ### Deploy on Amazon EC2
+    
+    Best for: Simple deployments with full control over the server.
+    
+    <Steps>
+    
+    1. **Launch EC2 Instance**
+       
+       - Go to AWS Console → EC2 → Launch Instance
+       - Select **Ubuntu 22.04 LTS** (or Amazon Linux 2023)
+       - Instance type: **t3.medium** (minimum for production)
+       - Storage: **30GB+ SSD**
+       - Security Group rules:
+         ```
+         SSH (22)      - Your IP only
+         HTTP (80)     - 0.0.0.0/0
+         HTTPS (443)   - 0.0.0.0/0
+         MySQL (3306)  - VPC only (if using external DB)
+         ```
+    
+    2. **Connect to Instance**
+       ```bash
+       ssh -i your-key.pem ubuntu@your-ec2-public-ip
+       ```
+    
+    3. **Install Docker & Docker Compose**
+       ```bash
+       # Update system
+       sudo apt update && sudo apt upgrade -y
+       
+       # Install Docker
+       curl -fsSL https://get.docker.com | sudo sh
+       sudo usermod -aG docker $USER
+       
+       # Install Docker Compose
+       sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+       sudo chmod +x /usr/local/bin/docker-compose
+       
+       # Log out and back in for group changes
+       exit
+       ```
+    
+    4. **Clone and Configure Checkmate**
+       ```bash
+       # Reconnect after logout
+       ssh -i your-key.pem ubuntu@your-ec2-public-ip
+       
+       # Clone repository
+       git clone https://github.com/dream-horizon-org/checkmate.git
+       cd checkmate
+       
+       # Create production .env file
+       nano .env
+       # (paste your production environment variables)
+       ```
+    
+    5. **Start Checkmate**
+       ```bash
+       # Build and start all services
+       docker-compose up -d --build
+       
+       # Check status
+       docker-compose ps
+       
+       # View logs
+       docker-compose logs -f checkmate-app
+       ```
+    
+    6. **Setup Nginx Reverse Proxy with SSL**
+       ```bash
+       # Install Nginx and Certbot
+       sudo apt install nginx certbot python3-certbot-nginx -y
+       
+       # Create Nginx config
+       sudo nano /etc/nginx/sites-available/checkmate
+       ```
+       
+       Add this configuration:
+       ```nginx
+       server {
+           listen 80;
+           server_name checkmate.yourdomain.com;
+           
+           location / {
+               proxy_pass http://localhost:3000;
+               proxy_http_version 1.1;
+               proxy_set_header Upgrade $http_upgrade;
+               proxy_set_header Connection 'upgrade';
+               proxy_set_header Host $host;
+               proxy_set_header X-Real-IP $remote_addr;
+               proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+               proxy_set_header X-Forwarded-Proto $scheme;
+               proxy_cache_bypass $http_upgrade;
+           }
+       }
+       ```
+       
+       Enable the site and get SSL:
+       ```bash
+       # Enable site
+       sudo ln -s /etc/nginx/sites-available/checkmate /etc/nginx/sites-enabled/
+       sudo nginx -t
+       sudo systemctl reload nginx
+       
+       # Get SSL certificate
+       sudo certbot --nginx -d checkmate.yourdomain.com
+       
+       # Auto-renewal is configured automatically
+       ```
+    
+    7. **Configure DNS**
+       
+       Point your domain to the EC2 public IP:
+       - Add an **A record**: `checkmate.yourdomain.com` → `EC2-PUBLIC-IP`
+    
+    </Steps>
+    
+    :::tip Auto-restart on Reboot
+    Docker containers will restart automatically. To ensure Docker starts on boot:
+    ```bash
+    sudo systemctl enable docker
+    ```
+    :::
+    
+  </TabItem>
+  
+  <TabItem value="rds" label="With Amazon RDS">
+    ### Using Amazon RDS for MySQL
+    
+    For production workloads, use Amazon RDS for managed database with backups and high availability.
+    
+    <Steps>
+    
+    1. **Create RDS Instance**
+       
+       - Go to AWS Console → RDS → Create Database
+       - Engine: **MySQL 8.0**
+       - Template: **Production** (or Free tier for testing)
+       - Instance class: **db.t3.micro** (dev) or **db.t3.medium** (prod)
+       - Storage: **20GB+ SSD** with autoscaling
+       - Connectivity:
+         - VPC: Same as EC2
+         - Public access: **No** (access via EC2 only)
+         - Security group: Allow MySQL (3306) from EC2 security group
+    
+    2. **Create Database and User**
+       
+       Connect from EC2:
+       ```bash
+       # Install MySQL client
+       sudo apt install mysql-client -y
+       
+       # Connect to RDS
+       mysql -h your-rds-endpoint.region.rds.amazonaws.com -u admin -p
+       ```
+       
+       Create database and user:
+       ```sql
+       CREATE DATABASE checkmate;
+       CREATE USER 'checkmate_user'@'%' IDENTIFIED BY 'STRONG_PASSWORD';
+       GRANT ALL PRIVILEGES ON checkmate.* TO 'checkmate_user'@'%';
+       FLUSH PRIVILEGES;
+       EXIT;
+       ```
+    
+    3. **Update Environment Variables**
+       ```env
+       # Use RDS endpoint instead of localhost
+       DB_URL=mysql://checkmate_user:STRONG_PASSWORD@your-rds-endpoint.region.rds.amazonaws.com:3306/checkmate
+       DOCKER_DB_URL=mysql://checkmate_user:STRONG_PASSWORD@your-rds-endpoint.region.rds.amazonaws.com:3306/checkmate
+       ```
+    
+    4. **Modify docker-compose.yml**
+       
+       Remove or comment out the database services since you're using RDS:
+       ```yaml
+       services:
+         # Comment out or remove these services:
+         # checkmate-db:
+         #   ...
+         # db_seeder:
+         #   ...
+         
+         checkmate-app:
+           build:
+             context: .
+             dockerfile: ./dockerfile
+           container_name: checkmate-app
+           env_file:
+             - .env
+           environment:
+             DB_URL: ${DB_URL}
+             NODE_ENV: production
+           ports:
+             - 3000:3000
+           restart: always
+       ```
+    
+    5. **Seed Database Manually**
+       ```bash
+       # From EC2, seed the RDS database
+       mysql -h your-rds-endpoint.region.rds.amazonaws.com -u checkmate_user -p checkmate < seedData.sql
+       ```
+    
+    6. **Start Application**
+       ```bash
+       docker-compose up -d checkmate-app
+       ```
+    
+    </Steps>
+    
+  </TabItem>
+  
+  <TabItem value="ecs" label="ECS (Container Service)">
+    ### Deploy on Amazon ECS
+    
+    For auto-scaling and managed container orchestration.
+    
+    <Steps>
+    
+    1. **Push Docker Image to ECR**
+       ```bash
+       # Create ECR repository
+       aws ecr create-repository --repository-name checkmate
+       
+       # Login to ECR
+       aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com
+       
+       # Build and push
+       docker build -t checkmate .
+       docker tag checkmate:latest YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/checkmate:latest
+       docker push YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/checkmate:latest
+       ```
+    
+    2. **Create ECS Cluster**
+       
+       - Go to ECS Console → Create Cluster
+       - Select **AWS Fargate** (serverless)
+       - Name: `checkmate-cluster`
+    
+    3. **Create Task Definition**
+       
+       Create `task-definition.json`:
+       ```json
+       {
+         "family": "checkmate",
+         "networkMode": "awsvpc",
+         "requiresCompatibilities": ["FARGATE"],
+         "cpu": "512",
+         "memory": "1024",
+         "executionRoleArn": "arn:aws:iam::YOUR_ACCOUNT:role/ecsTaskExecutionRole",
+         "containerDefinitions": [
+           {
+             "name": "checkmate-app",
+             "image": "YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/checkmate:latest",
+             "portMappings": [
+               {
+                 "containerPort": 3000,
+                 "protocol": "tcp"
+               }
+             ],
+             "environment": [
+               {"name": "NODE_ENV", "value": "production"},
+               {"name": "PORT", "value": "3000"}
+             ],
+             "secrets": [
+               {
+                 "name": "DB_URL",
+                 "valueFrom": "arn:aws:secretsmanager:us-east-1:YOUR_ACCOUNT:secret:checkmate/db-url"
+               },
+               {
+                 "name": "GOOGLE_CLIENT_ID",
+                 "valueFrom": "arn:aws:secretsmanager:us-east-1:YOUR_ACCOUNT:secret:checkmate/google-client-id"
+               },
+               {
+                 "name": "GOOGLE_CLIENT_SECRET",
+                 "valueFrom": "arn:aws:secretsmanager:us-east-1:YOUR_ACCOUNT:secret:checkmate/google-client-secret"
+               },
+               {
+                 "name": "SESSION_SECRET",
+                 "valueFrom": "arn:aws:secretsmanager:us-east-1:YOUR_ACCOUNT:secret:checkmate/session-secret"
+               }
+             ],
+             "logConfiguration": {
+               "logDriver": "awslogs",
+               "options": {
+                 "awslogs-group": "/ecs/checkmate",
+                 "awslogs-region": "us-east-1",
+                 "awslogs-stream-prefix": "ecs"
+               }
+             }
+           }
+         ]
+       }
+       ```
+       
+       Register task definition:
+       ```bash
+       aws ecs register-task-definition --cli-input-json file://task-definition.json
+       ```
+    
+    4. **Create Service with Load Balancer**
+       
+       - Create Application Load Balancer (ALB)
+       - Create Target Group pointing to port 3000
+       - Create ECS Service:
+         - Launch type: Fargate
+         - Task definition: checkmate
+         - Load balancer: Your ALB
+         - Desired count: 2 (for high availability)
+    
+    5. **Configure Auto Scaling**
+       
+       Set up target tracking scaling based on CPU/Memory utilization.
+    
+    </Steps>
+    
+  </TabItem>
+</Tabs>
+
+---
+
+## GCP Deployment
+
+<Tabs>
+  <TabItem value="gce" label="Compute Engine + Docker" default>
+    ### Deploy on Google Compute Engine
+    
+    <Steps>
+    
+    1. **Create VM Instance**
+       
+       ```bash
+       # Using gcloud CLI
+       gcloud compute instances create checkmate-server \
+         --zone=us-central1-a \
+         --machine-type=e2-medium \
+         --image-family=ubuntu-2204-lts \
+         --image-project=ubuntu-os-cloud \
+         --boot-disk-size=30GB \
+         --tags=http-server,https-server
+       
+       # Create firewall rules
+       gcloud compute firewall-rules create allow-http \
+         --allow tcp:80 --target-tags=http-server
+       
+       gcloud compute firewall-rules create allow-https \
+         --allow tcp:443 --target-tags=https-server
+       ```
+       
+       Or use GCP Console:
+       - Go to Compute Engine → VM Instances → Create Instance
+       - Machine type: **e2-medium**
+       - Boot disk: **Ubuntu 22.04 LTS**, 30GB SSD
+       - Firewall: Allow HTTP and HTTPS traffic
+    
+    2. **Connect to VM**
+       ```bash
+       gcloud compute ssh checkmate-server --zone=us-central1-a
+       ```
+    
+    3. **Install Docker**
+       ```bash
+       # Update and install Docker
+       sudo apt update && sudo apt upgrade -y
+       curl -fsSL https://get.docker.com | sudo sh
+       sudo usermod -aG docker $USER
+       
+       # Install Docker Compose
+       sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+       sudo chmod +x /usr/local/bin/docker-compose
+       
+       # Logout and reconnect
+       exit
+       ```
+    
+    4. **Deploy Checkmate**
+       ```bash
+       # Reconnect
+       gcloud compute ssh checkmate-server --zone=us-central1-a
+       
+       # Clone and configure
+       git clone https://github.com/dream-horizon-org/checkmate.git
+       cd checkmate
+       nano .env  # Add production environment variables
+       
+       # Start services
+       docker-compose up -d --build
+       ```
+    
+    5. **Setup Nginx with SSL**
+       ```bash
+       # Install Nginx and Certbot
+       sudo apt install nginx certbot python3-certbot-nginx -y
+       
+       # Configure Nginx (same as AWS EC2 guide)
+       sudo nano /etc/nginx/sites-available/checkmate
+       # Add the Nginx configuration from AWS guide
+       
+       sudo ln -s /etc/nginx/sites-available/checkmate /etc/nginx/sites-enabled/
+       sudo nginx -t && sudo systemctl reload nginx
+       
+       # Get SSL certificate
+       sudo certbot --nginx -d checkmate.yourdomain.com
+       ```
+    
+    6. **Reserve Static IP**
+       ```bash
+       # Reserve external IP to prevent changes on restart
+       gcloud compute addresses create checkmate-ip --region=us-central1
+       
+       # Assign to instance
+       gcloud compute instances delete-access-config checkmate-server \
+         --zone=us-central1-a --access-config-name="external-nat"
+       
+       gcloud compute instances add-access-config checkmate-server \
+         --zone=us-central1-a \
+         --address=$(gcloud compute addresses describe checkmate-ip --region=us-central1 --format='value(address)')
+       ```
+    
+    </Steps>
+    
+  </TabItem>
+  
+  <TabItem value="cloudsql" label="With Cloud SQL">
+    ### Using Cloud SQL for MySQL
+    
+    <Steps>
+    
+    1. **Create Cloud SQL Instance**
+       ```bash
+       gcloud sql instances create checkmate-db \
+         --database-version=MYSQL_8_0 \
+         --tier=db-f1-micro \
+         --region=us-central1 \
+         --root-password=YOUR_ROOT_PASSWORD \
+         --storage-size=10GB \
+         --storage-auto-increase
+       ```
+    
+    2. **Create Database and User**
+       ```bash
+       # Create database
+       gcloud sql databases create checkmate --instance=checkmate-db
+       
+       # Create user
+       gcloud sql users create checkmate_user \
+         --instance=checkmate-db \
+         --password=STRONG_PASSWORD
+       ```
+    
+    3. **Configure Private IP (Recommended)**
+       
+       For secure connection from Compute Engine:
+       ```bash
+       # Enable private IP
+       gcloud sql instances patch checkmate-db \
+         --network=default \
+         --no-assign-ip
+       ```
+    
+    4. **Update Environment Variables**
+       ```env
+       # For private IP connection
+       DB_URL=mysql://checkmate_user:STRONG_PASSWORD@CLOUD_SQL_PRIVATE_IP:3306/checkmate
+       
+       # Or for public IP with SSL (not recommended)
+       # DB_URL=mysql://checkmate_user:STRONG_PASSWORD@CLOUD_SQL_PUBLIC_IP:3306/checkmate?ssl=true
+       ```
+    
+    5. **Seed Database**
+       ```bash
+       # Connect using Cloud SQL Proxy for seeding
+       # Download proxy: https://cloud.google.com/sql/docs/mysql/connect-admin-proxy
+       
+       ./cloud_sql_proxy -instances=PROJECT:REGION:checkmate-db=tcp:3307 &
+       mysql -h 127.0.0.1 -P 3307 -u checkmate_user -p checkmate < seedData.sql
+       ```
+    
+    </Steps>
+    
+  </TabItem>
+  
+  <TabItem value="cloudrun" label="Cloud Run">
+    ### Deploy on Cloud Run (Serverless)
+    
+    Best for: Auto-scaling, pay-per-use, minimal ops.
+    
+    <Steps>
+    
+    1. **Build and Push to Container Registry**
+       ```bash
+       # Enable required APIs
+       gcloud services enable containerregistry.googleapis.com run.googleapis.com
+       
+       # Build and push
+       gcloud builds submit --tag gcr.io/YOUR_PROJECT/checkmate
+       ```
+    
+    2. **Deploy to Cloud Run**
+       ```bash
+       gcloud run deploy checkmate \
+         --image gcr.io/YOUR_PROJECT/checkmate \
+         --platform managed \
+         --region us-central1 \
+         --allow-unauthenticated \
+         --port 3000 \
+         --memory 1Gi \
+         --cpu 1 \
+         --min-instances 1 \
+         --max-instances 10 \
+         --set-env-vars "NODE_ENV=production" \
+         --set-secrets "DB_URL=checkmate-db-url:latest,GOOGLE_CLIENT_ID=checkmate-google-client-id:latest,GOOGLE_CLIENT_SECRET=checkmate-google-client-secret:latest,SESSION_SECRET=checkmate-session-secret:latest"
+       ```
+    
+    3. **Store Secrets in Secret Manager**
+       ```bash
+       # Create secrets
+       echo -n "mysql://user:pass@host:3306/checkmate" | \
+         gcloud secrets create checkmate-db-url --data-file=-
+       
+       echo -n "your-google-client-id" | \
+         gcloud secrets create checkmate-google-client-id --data-file=-
+       
+       echo -n "your-google-client-secret" | \
+         gcloud secrets create checkmate-google-client-secret --data-file=-
+       
+       echo -n "your-session-secret" | \
+         gcloud secrets create checkmate-session-secret --data-file=-
+       
+       # Grant Cloud Run access to secrets
+       gcloud secrets add-iam-policy-binding checkmate-db-url \
+         --member="serviceAccount:YOUR_PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
+         --role="roles/secretmanager.secretAccessor"
+       # Repeat for other secrets
+       ```
+    
+    4. **Connect Cloud SQL**
+       
+       For Cloud Run to Cloud SQL connection:
+       ```bash
+       gcloud run services update checkmate \
+         --add-cloudsql-instances YOUR_PROJECT:us-central1:checkmate-db \
+         --region us-central1
+       ```
+       
+       Update DB_URL to use socket:
+       ```
+       mysql://user:pass@localhost/checkmate?socket=/cloudsql/PROJECT:REGION:INSTANCE
+       ```
+    
+    5. **Map Custom Domain**
+       
+       - Go to Cloud Run Console → Your Service → Manage Custom Domains
+       - Add your domain and verify ownership
+       - SSL is automatic
+    
+    </Steps>
+    
+  </TabItem>
+</Tabs>
+
+---
+
+## Production Checklist
+
+### Security
+
+- [ ] **SSL/TLS enabled** - All traffic over HTTPS
+- [ ] **Strong passwords** - Database and session secrets
+- [ ] **Firewall configured** - Only necessary ports open
+- [ ] **OAuth configured** - Production URLs in Google Console
+- [ ] **Secrets management** - Use cloud provider's secret manager
+- [ ] **Regular updates** - Keep system and dependencies updated
+- [ ] **Storage credentials secured** - IAM roles preferred over access keys
+
+### Performance
+
+- [ ] **Database optimization** - Indexes, connection pooling
+- [ ] **Memory allocation** - Adequate RAM for Node.js
+- [ ] **CDN for static assets** - (Optional) CloudFront or Cloud CDN
+- [ ] **CDN for attachments** - S3/GCS with CloudFront/Cloud CDN
+- [ ] **Monitoring setup** - CloudWatch, Stackdriver, or similar
+
+### Reliability
+
+- [ ] **Automated backups** - Database and configuration
+- [ ] **Health checks** - Load balancer health endpoints
+- [ ] **Auto-restart** - Container restart policies
+- [ ] **Logging** - Centralized log collection
+- [ ] **Alerting** - Set up notifications for errors
+- [ ] **File storage configured** - S3/GCS for production (not local)
+
+### Maintenance
+
+- [ ] **Update strategy** - Plan for rolling updates
+- [ ] **Backup restoration tested** - Verify backup recovery works
+- [ ] **Documentation** - Runbooks for common operations
+- [ ] **Access control** - Limit SSH/admin access
+- [ ] **Storage lifecycle policies** - Auto-cleanup of old files
+
+---
+
+## Monitoring & Logging
+
+### Application Logs
+
+```bash
+# Docker logs
+docker-compose logs -f checkmate-app
+
+# Follow logs with timestamps
+docker-compose logs -f --timestamps checkmate-app
+```
+
+### Health Check Endpoint
+
+Checkmate exposes a health endpoint at:
+```
+GET /api/v1/user/details
+```
+
+Configure your load balancer to use this for health checks.
+
+### Recommended Monitoring Tools
+
+| Provider | Tool | Purpose |
+|----------|------|---------|
+| AWS | CloudWatch | Logs, metrics, alarms |
+| AWS | X-Ray | Distributed tracing |
+| GCP | Cloud Logging | Centralized logs |
+| GCP | Cloud Monitoring | Metrics and alerting |
+| Any | Datadog | Full observability |
+| Any | Grafana + Prometheus | Open-source monitoring |
+
+---
+
+## Backup & Recovery
+
+### Database Backups
+
+<Tabs>
+  <TabItem value="aws-backup" label="AWS RDS">
+    ```bash
+    # Enable automated backups (done during RDS creation)
+    # Manual snapshot
+    aws rds create-db-snapshot \
+      --db-instance-identifier checkmate-db \
+      --db-snapshot-identifier checkmate-backup-$(date +%Y%m%d)
+    ```
+  </TabItem>
+  
+  <TabItem value="gcp-backup" label="GCP Cloud SQL">
+    ```bash
+    # Automated backups are enabled by default
+    # Manual backup
+    gcloud sql backups create --instance=checkmate-db
+    
+    # List backups
+    gcloud sql backups list --instance=checkmate-db
+    ```
+  </TabItem>
+  
+  <TabItem value="docker-backup" label="Docker MySQL">
+    ```bash
+    # Backup
+    docker exec checkmate-db mysqldump -u root -pROOT_PASSWORD checkmate > backup_$(date +%Y%m%d).sql
+    
+    # Restore
+    docker exec -i checkmate-db mysql -u root -pROOT_PASSWORD checkmate < backup_20240115.sql
+    ```
+  </TabItem>
+</Tabs>
+
+### File Storage Backups
+
+<Tabs>
+  <TabItem value="s3-backup" label="AWS S3">
+    ```bash
+    # Enable S3 versioning (recommended)
+    aws s3api put-bucket-versioning \
+      --bucket your-checkmate-bucket \
+      --versioning-configuration Status=Enabled
+    
+    # Cross-region replication for disaster recovery
+    aws s3api put-bucket-replication \
+      --bucket your-checkmate-bucket \
+      --replication-configuration file://replication-config.json
+    
+    # Sync to backup bucket
+    aws s3 sync s3://your-checkmate-bucket s3://your-backup-bucket
+    
+    # Download backup locally
+    aws s3 sync s3://your-checkmate-bucket ./s3-backup/
+    ```
+  </TabItem>
+  
+  <TabItem value="gcs-backup" label="GCP Cloud Storage">
+    ```bash
+    # Enable object versioning
+    gcloud storage buckets update gs://your-checkmate-bucket --versioning
+    
+    # Copy to backup bucket
+    gcloud storage cp -r gs://your-checkmate-bucket/* gs://your-backup-bucket/
+    
+    # Download backup locally
+    gcloud storage cp -r gs://your-checkmate-bucket ./gcs-backup/
+    
+    # Set up Cloud Storage Transfer for scheduled backups
+    gcloud transfer jobs create \
+      gs://your-checkmate-bucket \
+      gs://your-backup-bucket \
+      --schedule-repeats-every=1d
+    ```
+  </TabItem>
+  
+  <TabItem value="local-backup" label="Local Storage">
+    ```bash
+    # Backup uploads directory
+    tar -czvf uploads_backup_$(date +%Y%m%d).tar.gz uploads/
+    
+    # Restore uploads
+    tar -xzvf uploads_backup_20240115.tar.gz
+    
+    # Sync to remote backup
+    rsync -avz uploads/ backup-server:/path/to/backups/uploads/
+    ```
+  </TabItem>
+</Tabs>
+
+### Application Backup
+
+```bash
+# Backup environment and config
+cp .env .env.backup
+cp docker-compose.yml docker-compose.yml.backup
+
+# Backup uploads directory (for local storage)
+tar -czvf uploads_backup_$(date +%Y%m%d).tar.gz uploads/
+```
+
+---
+
+## Troubleshooting
+
+### Container won't start
+
+```bash
+# Check container logs
+docker-compose logs checkmate-app
+
+# Check container status
+docker-compose ps
+
+# Restart containers
+docker-compose restart
+
+# Rebuild from scratch
+docker-compose down
+docker-compose up -d --build
+```
+
+### Database connection issues
+
+```bash
+# Test database connectivity
+docker exec -it checkmate-app sh -c "nc -zv checkmate-db 3306"
+
+# Check database logs
+docker-compose logs checkmate-db
+
+# Verify environment variables
+docker exec checkmate-app env | grep DB_URL
+```
+
+### SSL certificate issues
+
+```bash
+# Check certificate status
+sudo certbot certificates
+
+# Renew certificate manually
+sudo certbot renew --dry-run
+
+# Force renewal
+sudo certbot renew --force-renewal
+```
+
+### High memory usage
+
+```bash
+# Check container stats
+docker stats
+
+# Increase memory limit in docker-compose.yml
+services:
+  checkmate-app:
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+```
+
+---
+
+## Next Steps
+
+<CardGrid>
+  <Card title="Setup Guide" icon="rocket">
+    Return to basic setup
+    
+    [Setup Guide →](/docs/project/setup)
+  </Card>
+  
+  <Card title="API Documentation" icon="open-book">
+    Configure integrations
+    
+    [API Docs →](/docs/guides/api/)
+  </Card>
+  
+  <Card title="MCP Server" icon="puzzle">
+    Deploy MCP server
+    
+    [MCP Docker →](/docs/project/mcp-docker)
+  </Card>
+  
+  <Card title="Architecture" icon="cog">
+    Understand the system
+    
+    [Architecture →](/docs/tech/architecture)
+  </Card>
+</CardGrid>
+
+---
+
+## Additional Resources
+
+- **AWS Documentation:** [docs.aws.amazon.com](https://docs.aws.amazon.com/)
+- **GCP Documentation:** [cloud.google.com/docs](https://cloud.google.com/docs)
+- **Docker Documentation:** [docs.docker.com](https://docs.docker.com/)
+- **Nginx Documentation:** [nginx.org/en/docs](https://nginx.org/en/docs/)
+- **Let's Encrypt:** [letsencrypt.org/docs](https://letsencrypt.org/docs/)
+- **Discord Community:** [Join Discord](https://discord.gg/wBQXeYAKNc)
+

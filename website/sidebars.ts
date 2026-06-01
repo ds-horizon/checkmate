@@ -4,6 +4,7 @@ const sidebars: SidebarsConfig = {
   docsSidebar: [
     'project/introduction',
     'project/setup',
+    'project/cloud-deployment',
     {
       type: 'category',
       label: 'User Guide',

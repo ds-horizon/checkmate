@@ -476,9 +476,61 @@ NODE_ENV=development
 LOG_LEVEL=info
 ```
 
+### File Storage Variables (Production)
+
+For production deployments, configure cloud storage for file attachments:
+
+```env
+# Storage provider: 'local' (default), 's3', or 'gcs'
+STORAGE_PROVIDER=s3
+
+# AWS S3 Configuration
+STORAGE_BUCKET=your-bucket-name
+STORAGE_REGION=us-east-1
+STORAGE_ACCESS_KEY_ID=your-access-key
+STORAGE_SECRET_ACCESS_KEY=your-secret-key
+
+# Google Cloud Storage Configuration
+# GCS_PROJECT_ID=your-project-id
+# GCS_KEY_FILENAME=/path/to/service-account.json
+
+# Optional: CDN URL for serving files
+# STORAGE_PUBLIC_URL=https://cdn.yourdomain.com
+```
+
+See the [Cloud Deployment Guide](/docs/project/cloud-deployment#file-storage-configuration-s3gcs) for detailed storage setup instructions.
+
 :::tip
   **Generate secure secrets:** Use `openssl rand -base64 32` to generate a strong `SESSION_SECRET`.
 :::
+
+---
+
+## Cloud Deployment
+
+Ready to deploy Checkmate to production? We have detailed guides for major cloud providers:
+
+<CardGrid>
+  <Card title="AWS Deployment" icon="cloud">
+    Deploy on EC2, ECS, or with RDS
+    
+    [AWS Guide →](/docs/project/cloud-deployment#aws-deployment)
+  </Card>
+  
+  <Card title="GCP Deployment" icon="cloud">
+    Deploy on Compute Engine, Cloud Run, or Cloud SQL
+    
+    [GCP Guide →](/docs/project/cloud-deployment#gcp-deployment)
+  </Card>
+</CardGrid>
+
+The [Cloud Deployment Guide](/docs/project/cloud-deployment) covers:
+- ✅ Production environment configuration
+- ✅ SSL/TLS setup with Let's Encrypt
+- ✅ Managed database setup (RDS/Cloud SQL)
+- ✅ Container orchestration (ECS/Cloud Run)
+- ✅ Monitoring and logging
+- ✅ Backup and recovery strategies
 
 ---
 
@@ -491,10 +543,10 @@ LOG_LEVEL=info
     [Get Started →](/docs/guides/projects)
   </Card>
   
-  <Card title="System Architecture" icon="puzzle">
-    Understand how Checkmate works
+  <Card title="Cloud Deployment" icon="cloud">
+    Deploy to AWS or GCP
     
-    [Read Docs →](/docs/tech/architecture)
+    [Deploy →](/docs/project/cloud-deployment)
   </Card>
   
   <Card title="API Documentation" icon="open-book">

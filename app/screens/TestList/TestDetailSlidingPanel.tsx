@@ -12,6 +12,8 @@ import {AddResultDialog} from '../RunTestList/AddResultDialog'
 import {TestStatusType} from '@controllers/types'
 import {StatusEntry} from '@api/testStatusHistory'
 import {TestStatusHistroyDialog} from '../TestDetail/TestStatusHistroyDialog'
+import {MediaGallery, Attachment} from '~/components/Attachments'
+import {ImageIcon} from 'lucide-react'
 
 export interface TestDetailAPI {
   additionalGroups?: string
@@ -57,6 +59,12 @@ export const TestDetailDrawer = ({
   }>()
   const navigate = useCustomNavigate()
 
+  // Attachment fetchers
+  const expectedAttachmentsFetcher = useFetcher<{data: Attachment[]}>()
+  const actualAttachmentsFetcher = useFetcher<{data: Attachment[]}>()
+  const [expectedAttachments, setExpectedAttachments] = useState<Attachment[]>([])
+  const [actualAttachments, setActualAttachments] = useState<Attachment[]>([])
+
   const testDetailClicked = (
     e: React.MouseEvent<HTMLButtonElement, MouseEvent>,
   ) => {
@@ -74,12 +82,26 @@ export const TestDetailDrawer = ({
       testDetailFetcher.load(
         `/${API.GetTestDetails}?projectId=${props.projectId}&testId=${props.testId}`,
       )
-      if (pageType === 'runTestDetail')
+      
+      // Load expected behavior attachments
+      expectedAttachmentsFetcher.load(
+        `/${API.GetTestAttachments}?projectId=${props.projectId}&testId=${props.testId}`,
+      )
+      
+      if (pageType === 'runTestDetail') {
         testStatusHistoryFetcher.load(
           `/${API.GetTestStatusHistoryInRun}?runId=${props.runId}&testId=${props.testId}`,
         )
+        
+        // Load actual behavior attachments (run-specific)
+        if (props.runId) {
+          actualAttachmentsFetcher.load(
+            `/${API.GetRunAttachments}?projectId=${props.projectId}&testId=${props.testId}&runId=${props.runId}`,
+          )
+        }
+      }
     }
-  }, [isOpen])
+  }, [isOpen, props.projectId, props.testId, props.runId])
 
   useEffect(() => {
     if (testDetailFetcher.data?.data) setData(testDetailFetcher.data?.data)
@@ -90,6 +112,27 @@ export const TestDetailDrawer = ({
       setTestStatusHistory(testStatusHistoryFetcher.data)
     }
   }, [testStatusHistoryFetcher.data])
+
+  // Update attachments when fetchers complete
+  useEffect(() => {
+    if (expectedAttachmentsFetcher.data?.data) {
+      setExpectedAttachments(expectedAttachmentsFetcher.data.data)
+    }
+  }, [expectedAttachmentsFetcher.data])
+
+  useEffect(() => {
+    if (actualAttachmentsFetcher.data?.data) {
+      setActualAttachments(actualAttachmentsFetcher.data.data)
+    }
+  }, [actualAttachmentsFetcher.data])
+
+  // Reset attachments when drawer closes
+  useEffect(() => {
+    if (!isOpen) {
+      setExpectedAttachments([])
+      setActualAttachments([])
+    }
+  }, [isOpen])
 
   return (
     <CustomDrawer isOpen={isOpen} onClose={onClose}>
@@ -161,6 +204,60 @@ export const TestDetailDrawer = ({
                   heading="Additional Groups"
                 />
               </div>
+
+              {/* Attachments Section */}
+              <div className="bg-white rounded-lg border border-slate-200 p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <ImageIcon className="w-4 h-4 text-blue-500" />
+                  <h3 className="text-sm font-semibold text-slate-700">
+                    {pageType === 'runTestDetail' ? 'Expected Behavior' : 'Attachments'}
+                  </h3>
+                  {expectedAttachments.length > 0 && (
+                    <span className="text-xs text-slate-500">
+                      ({expectedAttachments.length} attachment{expectedAttachments.length !== 1 ? 's' : ''})
+                    </span>
+                  )}
+                </div>
+                {expectedAttachments.length > 0 ? (
+                  <MediaGallery
+                    attachments={expectedAttachments}
+                    canDelete={false}
+                    emptyMessage="No attachments"
+                  />
+                ) : (
+                  <p className="text-sm text-slate-500">
+                    No attachments for this test.
+                  </p>
+                )}
+              </div>
+
+              {/* Actual Behavior Attachments (Run-specific) */}
+              {pageType === 'runTestDetail' && (
+                <div className="bg-white rounded-lg border border-slate-200 p-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <ImageIcon className="w-4 h-4 text-green-500" />
+                    <h3 className="text-sm font-semibold text-slate-700">
+                      Actual Behavior
+                    </h3>
+                    {actualAttachments.length > 0 && (
+                      <span className="text-xs text-slate-500">
+                        ({actualAttachments.length} attachment{actualAttachments.length !== 1 ? 's' : ''})
+                      </span>
+                    )}
+                  </div>
+                  {actualAttachments.length > 0 ? (
+                    <MediaGallery
+                      attachments={actualAttachments}
+                      canDelete={false}
+                      emptyMessage="No attachments"
+                    />
+                  ) : (
+                    <p className="text-sm text-slate-500">
+                      No actual behavior attachments uploaded for this run.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

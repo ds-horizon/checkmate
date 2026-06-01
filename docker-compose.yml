@@ -59,8 +59,7 @@ services:
       - 3000:3000
     networks:
       - checkmate-network
-    command: >
-      sh -c "yarn start"
+    # Entrypoint script handles migrations + startup
 
   checkmate-mcp:
     build:

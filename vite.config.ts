@@ -28,13 +28,29 @@ export default defineConfig({
       },
     }),
     tsconfigPaths(),
-    ,
   ],
   esbuild: {
     target: 'es2022',
   },
   build: {
     target: 'es2022',
+    rollupOptions: {
+      // Externalize optional cloud storage SDKs
+      // These are only needed if STORAGE_PROVIDER is set to 's3' or 'gcs'
+      external: [
+        '@aws-sdk/client-s3',
+        '@aws-sdk/s3-request-presigner',
+        '@google-cloud/storage',
+      ],
+    },
+  },
+  ssr: {
+    // Also externalize for SSR bundle
+    external: [
+      '@aws-sdk/client-s3',
+      '@aws-sdk/s3-request-presigner',
+      '@google-cloud/storage',
+    ],
   },
   server: {
     port: 1200,

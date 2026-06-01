@@ -6,7 +6,6 @@ logs
 *.log
 Dockerfile
 .dockerignore
-drizzle
 app/db/seed/seedTests/*.json
 .cache
 .idea/*

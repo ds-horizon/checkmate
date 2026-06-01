@@ -16,6 +16,7 @@ This Test Case Management Tool is designed to address the challenges faced by te
 
 - [Detailed Documentation](https://checkmate.dreamhorizon.org/)
 - [Installation Guide](https://checkmate.dreamhorizon.org/docs/project/setup)
+- [Cloud Deployment (AWS/GCP)](https://checkmate.dreamhorizon.org/docs/project/cloud-deployment)
 - [Product Guide](https://checkmate.dreamhorizon.org/docs/guides/projects)
 - [API Documentation](https://checkmate.dreamhorizon.org/docs/guides/api/)
 - [Connect with us on discord](https://discord.gg/wBQXeYAKNc)
@@ -104,6 +105,32 @@ cd checkmate
    - Seed the database with initial data.
 5. App will be started on http://localhost:3000
 
+
+### ☁️ Production Deployment (AWS/GCP)
+
+Deploy Checkmate to production on AWS or GCP. See our [Cloud Deployment Guide](https://checkmate.dreamhorizon.org/docs/project/cloud-deployment) for detailed instructions.
+
+**Quick Overview:**
+
+| Platform | Options |
+|----------|---------|
+| **AWS** | EC2 + Docker, ECS (Fargate), RDS for MySQL |
+| **GCP** | Compute Engine, Cloud Run, Cloud SQL |
+
+**Key Steps:**
+1. Configure production Google OAuth credentials
+2. Set up managed database (RDS/Cloud SQL) or use Docker MySQL
+3. Deploy with Docker Compose or container service
+4. Configure SSL with Let's Encrypt or cloud provider certificates
+5. Set up monitoring and backups
+
+```bash
+# Example: Deploy on any Linux server with Docker
+git clone https://github.com/dream-horizon-org/checkmate.git
+cd checkmate
+cp .env.example .env  # Configure production values
+docker-compose up -d --build
+```
 
 ### 📖 API Documentation
 

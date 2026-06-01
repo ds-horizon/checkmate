@@ -99,6 +99,8 @@ export function generateRbacPolicy(): IRbacPolicy[] {
       case API.GetTestsCount:
       case API.GetUserDetails:
       case API.RunDetail:
+      case API.GetTestAttachments:
+      case API.GetRunAttachments:
         role = AccessType.READER
         action = ApiTypes.GET
         break
@@ -106,6 +108,22 @@ export function generateRbacPolicy(): IRbacPolicy[] {
       case API.AddToken:
         role = AccessType.READER
         action = ApiTypes.POST
+        break
+
+      // Attachment upload permissions (USER role required)
+      case API.UploadTestAttachment:
+      case API.UploadRunAttachment:
+      case API.GetPresignedUploadUrl:
+      case API.ConfirmAttachmentUpload:
+        role = AccessType.USER
+        action = ApiTypes.POST
+        break
+
+      // Attachment delete permissions (USER role required)
+      case API.DeleteTestAttachment:
+      case API.DeleteRunAttachment:
+        role = AccessType.USER
+        action = ApiTypes.DELETE
         break
     }
 

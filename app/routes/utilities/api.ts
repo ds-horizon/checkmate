@@ -61,6 +61,15 @@ export enum API {
   UpdateUserRole = 'api/v1/user/update-role',
   AddSection = 'api/v1/project/add-section',
   EditSection = 'api/v1/project/edit-section',
+  // Attachment APIs
+  GetTestAttachments = 'api/v1/test/attachments',
+  UploadTestAttachment = 'api/v1/test/attachments/upload',
+  DeleteTestAttachment = 'api/v1/test/attachments/delete',
+  GetRunAttachments = 'api/v1/run/attachments',
+  UploadRunAttachment = 'api/v1/run/attachments/upload',
+  DeleteRunAttachment = 'api/v1/run/attachments/delete',
+  GetPresignedUploadUrl = 'api/v1/attachments/presigned-url',
+  ConfirmAttachmentUpload = 'api/v1/attachments/confirm-upload',
 }
 
 export const API_RESOLUTION_PATHS = {
@@ -113,6 +122,15 @@ export const API_RESOLUTION_PATHS = {
   [API.UpdateUserRole]: 'routes/api/v1/updateUserType.ts',
   [API.AddSection]: 'routes/api/v1/addSection.ts',
   [API.EditSection]: 'routes/api/v1/editSection.ts',
+  // Attachment APIs
+  [API.GetTestAttachments]: 'routes/api/v1/testAttachments.ts',
+  [API.UploadTestAttachment]: 'routes/api/v1/uploadTestAttachment.ts',
+  [API.DeleteTestAttachment]: 'routes/api/v1/deleteTestAttachment.ts',
+  [API.GetRunAttachments]: 'routes/api/v1/runAttachments.ts',
+  [API.UploadRunAttachment]: 'routes/api/v1/uploadRunAttachment.ts',
+  [API.DeleteRunAttachment]: 'routes/api/v1/deleteRunAttachment.ts',
+  [API.GetPresignedUploadUrl]: 'routes/api/v1/presignedUploadUrl.ts',
+  [API.ConfirmAttachmentUpload]: 'routes/api/v1/confirmAttachmentUpload.ts',
 }
 
 export const CLOSED_API = {
@@ -171,4 +189,13 @@ export const ApiToTypeMap: {
   [API.UpdateUserRole]: ApiTypes.PUT,
   [API.AddSection]: ApiTypes.POST,
   [API.EditSection]: ApiTypes.PUT,
+  // Attachment APIs
+  [API.GetTestAttachments]: ApiTypes.GET,
+  [API.UploadTestAttachment]: ApiTypes.POST,
+  [API.DeleteTestAttachment]: ApiTypes.DELETE,
+  [API.GetRunAttachments]: ApiTypes.GET,
+  [API.UploadRunAttachment]: ApiTypes.POST,
+  [API.DeleteRunAttachment]: ApiTypes.DELETE,
+  [API.GetPresignedUploadUrl]: ApiTypes.POST,
+  [API.ConfirmAttachmentUpload]: ApiTypes.POST,
 }

@@ -5,7 +5,7 @@ import {useCustomNavigate} from '@hooks/useCustomNavigate'
 import {useFetcher, useLoaderData, useParams} from '@remix-run/react'
 import {Button} from '@ui/button'
 import {cn} from '@ui/utils'
-import {useEffect, useState} from 'react'
+import {useEffect, useState, useCallback} from 'react'
 import {AddResultDialog} from '../RunTestList/AddResultDialog'
 import {InputLabels} from '../TestList/InputLabels'
 import {LinkContent, OptionContent, TextContent} from './Contents'
@@ -14,6 +14,13 @@ import {shortDate2} from '~/utils/getDate'
 import {Tooltip} from '@components/Tooltip/Tooltip'
 import {IGetAllSectionsResponse} from '@controllers/sections.controller'
 import {getSectionHierarchy} from '@components/SectionList/utils'
+import {
+  MediaUploader,
+  MediaGallery,
+  AttachmentSection,
+  Attachment,
+} from '~/components/Attachments'
+import {toast} from '@ui/use-toast'
 
 export default function TestDetailsPage({
   pageType,
@@ -30,6 +37,8 @@ export default function TestDetailsPage({
   const sectionFetcher = useFetcher<{
     data: IGetAllSectionsResponse[]
   }>()
+  const attachmentsFetcher = useFetcher<{data: {expected: Attachment[]; actual: Attachment[]}}>()
+  const deleteAttachmentFetcher = useFetcher<any>()
   const [sectionsData, setSectionsData] = useState<
     {
       sectionId: number
@@ -38,6 +47,8 @@ export default function TestDetailsPage({
       projectId: number
     }[]
   >([])
+  const [expectedAttachments, setExpectedAttachments] = useState<Attachment[]>([])
+  const [actualAttachments, setActualAttachments] = useState<Attachment[]>([])
 
   const data = resp?.data
   const [testStatus, setTestStatus] = useState<TestStatusData>()
@@ -58,6 +69,17 @@ export default function TestDetailsPage({
         : `/${API.GetTestStatusHistoryInRun}?runId=${runId}&testId=${testId}`,
     )
     sectionFetcher.load(`/${API.GetSections}?projectId=${projectId}`)
+    
+    // Load attachments based on page type
+    if (pageType === 'runTestDetail') {
+      attachmentsFetcher.load(
+        `/${API.GetRunAttachments}?projectId=${projectId}&runId=${runId}&testId=${testId}`,
+      )
+    } else {
+      attachmentsFetcher.load(
+        `/${API.GetTestAttachments}?projectId=${projectId}&testId=${testId}`,
+      )
+    }
   }, [projectId, testId, runId])
 
   useEffect(() => {
@@ -71,6 +93,21 @@ export default function TestDetailsPage({
       setSectionsData(sectionFetcher.data.data)
     }
   }, [sectionFetcher.data])
+
+  // Update attachments when fetcher completes
+  useEffect(() => {
+    if (attachmentsFetcher.data?.data) {
+      if (pageType === 'runTestDetail') {
+        // Run test detail returns both expected and actual
+        const attachmentsData = attachmentsFetcher.data.data as {expected: Attachment[]; actual: Attachment[]}
+        setExpectedAttachments(attachmentsData.expected || [])
+        setActualAttachments(attachmentsData.actual || [])
+      } else {
+        // Test detail returns only expected (as array)
+        setExpectedAttachments(attachmentsFetcher.data.data as unknown as Attachment[])
+      }
+    }
+  }, [attachmentsFetcher.data, pageType])
 
   useEffect(() => {
     if (testStatusHistoryFetcher && testStatusHistoryFetcher.data) {
@@ -93,6 +130,46 @@ export default function TestDetailsPage({
       e,
     )
   }
+
+  // Attachment handlers
+  const handleActualAttachmentUpload = useCallback(
+    (attachment: Attachment) => {
+      setActualAttachments((prev) => [...prev, attachment])
+      toast({
+        variant: 'success',
+        description: 'Attachment uploaded successfully',
+      })
+    },
+    [],
+  )
+
+  const handleAttachmentUploadError = useCallback((error: string) => {
+    toast({
+      variant: 'destructive',
+      description: error,
+    })
+  }, [])
+
+  const handleDeleteActualAttachment = useCallback(
+    (attachmentId: number) => {
+      deleteAttachmentFetcher.submit(
+        {attachmentId, projectId},
+        {
+          method: 'DELETE',
+          action: `/${API.DeleteRunAttachment}`,
+          encType: 'application/json',
+        },
+      )
+      setActualAttachments((prev) =>
+        prev.filter((a) => a.attachmentId !== attachmentId),
+      )
+      toast({
+        variant: 'success',
+        description: 'Attachment deleted',
+      })
+    },
+    [projectId],
+  )
 
   return (
     <div className="flex flex-col h-full pt-6">
@@ -224,6 +301,60 @@ export default function TestDetailsPage({
             />
           </div>
         </div>
+
+        {/* Expected Behavior Attachments - Always shown */}
+        {expectedAttachments.length > 0 && (
+          <div className="bg-white rounded-lg border border-slate-200 p-6">
+            <h2 className="text-lg font-semibold text-slate-900 mb-4">
+              Expected Behavior
+            </h2>
+            <p className="text-sm text-slate-500 mb-4">
+              Screenshots and videos showing the expected behavior for this test.
+            </p>
+            <MediaGallery
+              attachments={expectedAttachments}
+              canDelete={false}
+              emptyMessage="No expected behavior attachments"
+            />
+          </div>
+        )}
+
+        {/* Actual Behavior Attachments - Only shown in run test detail */}
+        {pageType === 'runTestDetail' && (
+          <div className="bg-white rounded-lg border border-slate-200 p-6">
+            <h2 className="text-lg font-semibold text-slate-900 mb-4">
+              Actual Behavior
+            </h2>
+            <p className="text-sm text-slate-500 mb-4">
+              Upload screenshots or videos showing the actual behavior observed during this test run.
+            </p>
+            
+            {/* Show existing actual attachments */}
+            {actualAttachments.length > 0 && (
+              <div className="mb-4">
+                <MediaGallery
+                  attachments={actualAttachments}
+                  onDelete={handleDeleteActualAttachment}
+                  canDelete={testStatus?.data?.[0]?.runStatus === 'Active'}
+                  emptyMessage="No actual behavior attachments yet"
+                />
+              </div>
+            )}
+            
+            {/* Upload component - only if run is active */}
+            {testStatus?.data?.[0]?.runStatus === 'Active' && (
+              <MediaUploader
+                projectId={projectId}
+                testId={testId}
+                runId={runId}
+                attachmentType="actual"
+                onUploadComplete={handleActualAttachmentUpload}
+                onUploadError={handleAttachmentUploadError}
+                currentCount={actualAttachments.length}
+              />
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

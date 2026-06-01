@@ -10,6 +10,7 @@
     "db:init": "yarn db:schema:push && yarn db:seed",
     "db:introspect": "drizzle-kit introspect",
     "db:migrate": "npx tsx db-migration.ts",
+    "db:migrate:run": "npx tsx scripts/migration-runner.ts",
     "db:schema:push": "yarn db:generate && yarn db:migrate",
     "db:seed": "npx tsx app/db/seed/seed.ts && sh ./scripts/insertTests.sh",
     "db:studio": "drizzle-kit studio --port 4000",

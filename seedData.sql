@@ -695,6 +695,93 @@ LOCK TABLES `users` WRITE;
 INSERT INTO `users` VALUES (1,'Seed Admin','admin@example.com',NULL,NULL,'admin','dummy1',NULL,'active'),(2,'Seed User','user@example.com',NULL,NULL,'user','dummy2',NULL,'active'),(3,'Seed Reader','reader@example.com',NULL,NULL,'reader','dummy3',NULL,'active');
 /*!40000 ALTER TABLE `users` ENABLE KEYS */;
 UNLOCK TABLES;
+
+--
+-- Table structure for table `testAttachments`
+--
+
+DROP TABLE IF EXISTS `testAttachments`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `testAttachments` (
+  `attachmentId` int NOT NULL AUTO_INCREMENT,
+  `testId` int NOT NULL,
+  `projectId` int NOT NULL,
+  `storageKey` varchar(500) NOT NULL,
+  `originalFilename` varchar(255) NOT NULL,
+  `mimeType` varchar(100) NOT NULL,
+  `fileSize` int NOT NULL,
+  `mediaType` enum('image','video') NOT NULL,
+  `description` text,
+  `displayOrder` int DEFAULT '0',
+  `createdBy` int DEFAULT NULL,
+  `createdOn` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updatedOn` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`attachmentId`),
+  KEY `testAttachmentsTestIdIndex` (`testId`),
+  KEY `testAttachmentsProjectIdIndex` (`projectId`),
+  KEY `testAttachments_createdBy_users_userId_fk` (`createdBy`),
+  CONSTRAINT `testAttachments_testId_tests_testId_fk` FOREIGN KEY (`testId`) REFERENCES `tests` (`testId`) ON DELETE CASCADE,
+  CONSTRAINT `testAttachments_projectId_projects_projectId_fk` FOREIGN KEY (`projectId`) REFERENCES `projects` (`projectId`) ON DELETE CASCADE,
+  CONSTRAINT `testAttachments_createdBy_users_userId_fk` FOREIGN KEY (`createdBy`) REFERENCES `users` (`userId`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `testAttachments`
+--
+
+LOCK TABLES `testAttachments` WRITE;
+/*!40000 ALTER TABLE `testAttachments` DISABLE KEYS */;
+/*!40000 ALTER TABLE `testAttachments` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `runAttachments`
+--
+
+DROP TABLE IF EXISTS `runAttachments`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `runAttachments` (
+  `attachmentId` int NOT NULL AUTO_INCREMENT,
+  `runId` int NOT NULL,
+  `testId` int NOT NULL,
+  `testRunMapId` int DEFAULT NULL,
+  `projectId` int NOT NULL,
+  `storageKey` varchar(500) NOT NULL,
+  `originalFilename` varchar(255) NOT NULL,
+  `mimeType` varchar(100) NOT NULL,
+  `fileSize` int NOT NULL,
+  `mediaType` enum('image','video') NOT NULL,
+  `description` text,
+  `displayOrder` int DEFAULT '0',
+  `createdBy` int DEFAULT NULL,
+  `createdOn` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updatedOn` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`attachmentId`),
+  KEY `runAttachmentsRunTestIndex` (`runId`,`testId`),
+  KEY `runAttachmentsProjectIdIndex` (`projectId`),
+  KEY `runAttachments_testId_tests_testId_fk` (`testId`),
+  KEY `runAttachments_testRunMapId_testRunMap_testRunMapId_fk` (`testRunMapId`),
+  KEY `runAttachments_createdBy_users_userId_fk` (`createdBy`),
+  CONSTRAINT `runAttachments_runId_runs_runId_fk` FOREIGN KEY (`runId`) REFERENCES `runs` (`runId`) ON DELETE CASCADE,
+  CONSTRAINT `runAttachments_testId_tests_testId_fk` FOREIGN KEY (`testId`) REFERENCES `tests` (`testId`) ON DELETE CASCADE,
+  CONSTRAINT `runAttachments_testRunMapId_testRunMap_testRunMapId_fk` FOREIGN KEY (`testRunMapId`) REFERENCES `testRunMap` (`testRunMapId`) ON DELETE CASCADE,
+  CONSTRAINT `runAttachments_projectId_projects_projectId_fk` FOREIGN KEY (`projectId`) REFERENCES `projects` (`projectId`) ON DELETE CASCADE,
+  CONSTRAINT `runAttachments_createdBy_users_userId_fk` FOREIGN KEY (`createdBy`) REFERENCES `users` (`userId`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `runAttachments`
+--
+
+LOCK TABLES `runAttachments` WRITE;
+/*!40000 ALTER TABLE `runAttachments` DISABLE KEYS */;
+/*!40000 ALTER TABLE `runAttachments` ENABLE KEYS */;
+UNLOCK TABLES;
+
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;

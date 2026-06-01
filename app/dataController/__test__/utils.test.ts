@@ -82,6 +82,32 @@ describe('transformSquadWiseRunData', () => {
 
     expect(transformSquadWiseRunData(input)).toEqual([])
   })
+
+  test('should handle squadId of 0 with a valid squadName', () => {
+    const input = [
+      {squadName: 'Unassigned', squadId: 0, status: 'Passed', status_count: 4},
+    ]
+
+    const output = transformSquadWiseRunData(input)
+
+    expect(output).toEqual([
+      {
+        squadName: 'Unassigned',
+        squadId: 0,
+        runData: {
+          passed: 4,
+          failed: 0,
+          untested: 0,
+          blocked: 0,
+          retest: 0,
+          archived: 0,
+          skipped: 0,
+          inprogress: 0,
+          total: 4,
+        },
+      },
+    ])
+  })
 })
 
 describe('handleNewSectionAndSquad', () => {

@@ -46,5 +46,33 @@ describe('AutomationStatusController', () => {
         mockParams,
       )
     })
+
+    it('should return an empty array when no automation statuses exist', async () => {
+      const mockParams = {orgId: 999}
+      ;(
+        AutomationStatusDao.getAllAutomationStatus as jest.Mock
+      ).mockResolvedValue([])
+
+      const result =
+        await AutomationStatusController.getAllAutomationStatus(mockParams)
+
+      expect(result).toEqual([])
+      expect(AutomationStatusDao.getAllAutomationStatus).toHaveBeenCalledWith(
+        mockParams,
+      )
+    })
+
+    it('should pass orgId correctly to the DAO', async () => {
+      const mockParams = {orgId: 42}
+      ;(
+        AutomationStatusDao.getAllAutomationStatus as jest.Mock
+      ).mockResolvedValue([])
+
+      await AutomationStatusController.getAllAutomationStatus(mockParams)
+
+      expect(AutomationStatusDao.getAllAutomationStatus).toHaveBeenCalledWith({
+        orgId: 42,
+      })
+    })
   })
 })

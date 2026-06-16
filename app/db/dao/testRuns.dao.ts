@@ -9,6 +9,7 @@ import {labels, labelTestMap} from '@schema/labels'
 import {runs, testRunMap, testRunsStatusHistory} from '@schema/runs'
 import {squads} from '@schema/squads'
 import {
+  automationStatus,
   automationStatus as automationTable,
   platform as platformTable,
   priority as priorityTable,
@@ -578,6 +579,8 @@ const TestRunsDao = {
           Squad: squads.squadName,
           Section: sections.sectionName,
           Platform: platformTable.platformName,
+          'Automation Status': automationStatus.automationStatusName,
+          'Test Covered By': testCoveredBy.testCoveredByName,
         })
         .from(testRunMap)
         .leftJoin(users, eq(testRunMap.updatedBy, users.userId))
@@ -586,6 +589,14 @@ const TestRunsDao = {
         .leftJoin(sections, eq(tests.sectionId, sections.sectionId))
         .leftJoin(priorityTable, eq(tests.priorityId, priorityTable.priorityId))
         .leftJoin(platformTable, eq(tests.platformId, platformTable.platformId))
+        .leftJoin(
+          automationStatus,
+          eq(tests.automationStatusId, automationStatus.automationStatusId),
+        )
+        .leftJoin(
+          testCoveredBy,
+          eq(tests.testCoveredById, testCoveredBy.testCoveredById),
+        )
         .where(and(...whereClauses))
         .orderBy(asc(testRunMap.testId))
         .execute()

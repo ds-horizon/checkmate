@@ -1,0 +1,1 @@
+ALTER TABLE `testRunMap` MODIFY COLUMN `comment` text;

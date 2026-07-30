@@ -1,8 +1,9 @@
-import {ActionFunctionArgs} from '@remix-run/node'
 import {
-  buildAttachmentKey,
-  uploadAttachment,
-} from '@services/s3'
+  ActionFunctionArgs,
+  unstable_createMemoryUploadHandler,
+  unstable_parseMultipartFormData,
+} from '@remix-run/node'
+import {buildAttachmentKey, uploadAttachment} from '@services/s3'
 import {API} from '~/routes/utilities/api'
 import {getUserAndCheckAccess} from '~/routes/utilities/checkForUserAndAccess'
 import {
@@ -14,7 +15,6 @@ const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024 // 10 MB
 const ALLOWED_CONTENT_TYPES = [
   'image/png',
   'image/jpeg',
-  'image/jpg',
   'image/gif',
   'image/webp',
 ]
@@ -26,7 +26,25 @@ export const action = async ({request}: ActionFunctionArgs) => {
       resource: API.UploadAttachment,
     })
 
-    const formData = await request.formData()
+    // maxPartSize rejects the part while streaming rather than after the
+    // whole multipart body has been buffered into memory.
+    const uploadHandler = unstable_createMemoryUploadHandler({
+      maxPartSize: MAX_FILE_SIZE_BYTES,
+    })
+
+    let formData
+    try {
+      formData = await unstable_parseMultipartFormData(request, uploadHandler)
+    } catch (error: any) {
+      if (error?.message?.includes('exceeded upload size')) {
+        return responseHandler({
+          error: 'File too large, max size is 10MB',
+          status: 400,
+        })
+      }
+      throw error
+    }
+
     const file = formData.get('file')
 
     if (!file || !(file instanceof File)) {
@@ -39,13 +57,6 @@ export const action = async ({request}: ActionFunctionArgs) => {
     if (!ALLOWED_CONTENT_TYPES.includes(file.type)) {
       return responseHandler({
         error: `Unsupported file type: ${file.type}`,
-        status: 400,
-      })
-    }
-
-    if (file.size > MAX_FILE_SIZE_BYTES) {
-      return responseHandler({
-        error: 'File too large, max size is 10MB',
         status: 400,
       })
     }

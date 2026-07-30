@@ -83,7 +83,12 @@ export const RunTestListColumnConfig: ColumnDef<Tests>[] = [
   },
   {
     accessorKey: TestListingColumns.title,
-    header: () => <SortingHeaderComponent heading={TestListingColumns.title} position="left" />,
+    header: () => (
+      <SortingHeaderComponent
+        heading={TestListingColumns.title}
+        position="left"
+      />
+    ),
 
     cell: ({row, table}) => {
       const [isDrawerOpen, setDrawerOpen] = useState(false)
@@ -122,10 +127,7 @@ export const RunTestListColumnConfig: ColumnDef<Tests>[] = [
   {
     accessorKey: TestListingColumns.status,
     header: () => (
-      <HeaderComponent
-        heading={TestListingColumns.status}
-        position="center"
-      />
+      <HeaderComponent heading={TestListingColumns.status} position="center" />
     ),
     cell: ({row}) => {
       const params = useParams()
@@ -140,6 +142,7 @@ export const RunTestListColumnConfig: ColumnDef<Tests>[] = [
             runId={runId}
             variant="runRowUpdate"
             currStatus={row.original.testStatus as TestStatusType}
+            currComment={comment}
           />
           {comment && (
             <Tooltip
@@ -175,10 +178,7 @@ export const RunTestListColumnConfig: ColumnDef<Tests>[] = [
   {
     accessorKey: TestListingColumns.testedBy,
     header: () => (
-      <HeaderComponent
-        heading={TestListingColumns.testedBy}
-        position="left"
-      />
+      <HeaderComponent heading={TestListingColumns.testedBy} position="left" />
     ),
     cell: ({row}) => {
       return (
@@ -232,16 +232,15 @@ export const RunTestListColumnConfig: ColumnDef<Tests>[] = [
       />
     ),
     cell: ({row}) => (
-      <div className="text-left text-sm text-slate-700">{row.original.automationStatus}</div>
+      <div className="text-left text-sm text-slate-700">
+        {row.original.automationStatus}
+      </div>
     ),
   },
   {
     accessorKey: TestListingColumns.labelName,
     header: () => (
-      <HeaderComponent
-        position="left"
-        heading={TestListingColumns.labelName}
-      />
+      <HeaderComponent position="left" heading={TestListingColumns.labelName} />
     ),
     cell: ({row}) => (
       <Tooltip

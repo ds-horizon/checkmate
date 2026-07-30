@@ -2,7 +2,7 @@ import {API} from '~/routes/utilities/api'
 import {TestStatusType} from '@controllers/types'
 import {useFetcher} from '@remix-run/react'
 import {ChevronDown, X} from 'lucide-react'
-import {useEffect, useState} from 'react'
+import {useEffect, useRef, useState} from 'react'
 import {ComboboxDemo} from '~/components/ComboBox/ComboBox'
 import {CustomDialog} from '~/components/Dialog/Dialog'
 import {Loader} from '~/components/Loader/Loader'
@@ -31,6 +31,7 @@ interface AddResultsDialogProps {
   onAddResultSubmit?: () => void
   variant?: 'bulkUpdate' | 'detailPageUpdate' | 'runRowUpdate'
   currStatus?: TestStatusType
+  currComment?: string | null
   isAddResultEnabled?: boolean
   containerClassName?: string
 }
@@ -41,27 +42,43 @@ export const AddResultDialog = ({
   runId,
   variant,
   currStatus,
+  currComment,
   isAddResultEnabled = true,
   containerClassName,
 }: AddResultsDialogProps) => {
   const updateStatusFetcher = useFetcher<any>()
   const [status, setStatus] = useState(currStatus ?? '')
-  const [comment, setComment] = useState('')
+  const [comment, setComment] = useState(currComment ?? '')
   const [shouldAnimate, setShouldAnimate] = useState(false)
   const [attachments, setAttachments] = useState<string[]>([])
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false)
   const {toast} = useToast()
+  const submittedRef = useRef(false)
 
-  // Keep status in sync with currStatus so that reopening the dialog to edit
-  // an already-submitted result (e.g. to update the comment) prefills the
-  // existing status instead of leaving it blank and blocking Submit. Also
-  // clear any unsubmitted draft comment so a cancelled edit on one row can't
-  // leak into a later submission for another row/reopen.
-  useEffect(() => {
-    setStatus(currStatus ?? '')
-    setComment('')
-    setAttachments([])
-  }, [currStatus])
+  // Re-prefill from props each time the dialog opens, so a cancelled edit
+  // never leaks a stale draft into the next open, and reopening to amend an
+  // existing comment starts from that comment rather than blank. On close
+  // without submitting (Cancel, Escape, overlay click), delete any
+  // already-uploaded attachments from S3 instead of leaving them orphaned.
+  const onDialogOpenChange = (open: boolean) => {
+    if (open) {
+      setStatus(currStatus ?? '')
+      setComment(currComment ?? '')
+      setAttachments([])
+      submittedRef.current = false
+      return
+    }
+
+    if (!submittedRef.current) {
+      attachments.forEach((key) => {
+        fetch(`/${API.DeleteAttachment}`, {
+          method: 'DELETE',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({key}),
+        }).catch(() => {})
+      })
+    }
+  }
 
   useEffect(() => {
     if (isAddResultEnabled) {
@@ -107,10 +124,20 @@ export const AddResultDialog = ({
   }
 
   const removeAttachment = (index: number) => {
+    const key = attachments[index]
     setAttachments((prev) => prev.filter((_, i) => i !== index))
+    fetch(`/${API.DeleteAttachment}`, {
+      method: 'DELETE',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({key}),
+    }).catch(() => {
+      // Best-effort cleanup: the attachment is already gone from this draft
+      // either way, so a delete failure here shouldn't block the user.
+    })
   }
 
   const onAddResultSubmited = () => {
+    submittedRef.current = true
     const selectedRows = getSelectedRows()
     const updatedSelectedRows = selectedRows.map((row) => {
       return {
@@ -143,7 +170,8 @@ export const AddResultDialog = ({
             backgroundColor: getStatusColor(currStatus as TestStatusType),
             fontWeight: 500,
             color: currStatus === TestStatusType.Blocked ? 'white' : 'black',
-          }}>
+          }}
+        >
           {currStatus}
           <ChevronDown size={22} strokeWidth={2} className="ml-2" />
         </Button>
@@ -159,7 +187,8 @@ export const AddResultDialog = ({
             width: 108,
             color: getStatusTextColor(currStatus as TestStatusType),
           }}
-          className="px-2 py-3 h-3">
+          className="px-2 py-3 h-3"
+        >
           {currStatus}
           <ChevronDown size={16} strokeWidth={2} className="ml-2" />
         </Button>
@@ -175,7 +204,8 @@ export const AddResultDialog = ({
           'shadow-sm',
           shouldAnimate ? 'animate-bounce' : '',
           'transition-all duration-300',
-        )}>
+        )}
+      >
         Add Result
       </Button>
     )
@@ -187,6 +217,7 @@ export const AddResultDialog = ({
 
   return (
     <CustomDialog
+      onOpenChange={onDialogOpenChange}
       anchorComponent={
         <div className={containerClassName}>{triggerComponent(variant)}</div>
       }
@@ -198,34 +229,48 @@ export const AddResultDialog = ({
       contentComponent={
         <div className="pt-2 space-y-5">
           <div className="space-y-2.5">
-            <label htmlFor="status" className="text-sm font-semibold text-slate-700">
+            <label
+              htmlFor="status"
+              className="text-sm font-semibold text-slate-700"
+            >
               Status <span className="text-red-600">*</span>
             </label>
-            
+
             <ComboboxDemo
               value={status}
               onChange={(value) => setStatus(value)}
               options={TEST_STATUS_OPTIONS}
             />
-            
+
             {status === '' && (
-              <p className="pt-1 text-xs text-slate-500">Please select a test status</p>
+              <p className="pt-1 text-xs text-slate-500">
+                Please select a test status
+              </p>
             )}
           </div>
           <div className="space-y-2.5">
-            <label htmlFor="comment" className="text-sm font-semibold text-slate-700">
+            <label
+              htmlFor="comment"
+              className="text-sm font-semibold text-slate-700"
+            >
               Comment
             </label>
             <Textarea
               id="comment"
               placeholder="Add optional notes about this test result..."
+              value={comment}
               onChange={(e) => setComment(e.target.value)}
               className="min-h-[100px] resize-none"
             />
-            <p className="pt-1 text-xs text-slate-500">Optional: Add any relevant notes or observations</p>
+            <p className="pt-1 text-xs text-slate-500">
+              Optional: Add any relevant notes or observations
+            </p>
           </div>
           <div className="space-y-2.5">
-            <label htmlFor="attachments" className="text-sm font-semibold text-slate-700">
+            <label
+              htmlFor="attachments"
+              className="text-sm font-semibold text-slate-700"
+            >
               Screenshots
             </label>
             <Input
@@ -248,14 +293,17 @@ export const AddResultDialog = ({
                     <button
                       type="button"
                       onClick={() => removeAttachment(index)}
-                      className="absolute -top-1.5 -right-1.5 bg-slate-900 text-white rounded-full p-0.5">
+                      className="absolute -top-1.5 -right-1.5 bg-slate-900 text-white rounded-full p-0.5"
+                    >
                       <X size={10} />
                     </button>
                   </div>
                 ))}
               </div>
             )}
-            <p className="pt-1 text-xs text-slate-500">Optional: Attach one or more screenshots</p>
+            <p className="pt-1 text-xs text-slate-500">
+              Optional: Attach one or more screenshots
+            </p>
           </div>
         </div>
       }
@@ -263,14 +311,14 @@ export const AddResultDialog = ({
         <updateStatusFetcher.Form method="POST" className="w-full">
           <div className="flex gap-3 pt-2">
             <DialogClose asChild>
-              <Button
-                type="button"
-                variant="outline"
-                className="flex-1">
+              <Button type="button" variant="outline" className="flex-1">
                 Cancel
               </Button>
             </DialogClose>
-            <DialogClose disabled={status === '' || isUploadingAttachment} asChild>
+            <DialogClose
+              disabled={status === '' || isUploadingAttachment}
+              asChild
+            >
               <Button
                 type="button"
                 variant="default"
@@ -280,7 +328,8 @@ export const AddResultDialog = ({
                   updateStatusFetcher.state !== 'idle' ||
                   status === '' ||
                   isUploadingAttachment
-                }>
+                }
+              >
                 Submit Result
               </Button>
             </DialogClose>

@@ -101,7 +101,9 @@ export default function TestDetailsPage({
         <div className="flex items-start justify-between mb-4">
           <div>
             <div className="flex items-center gap-3 mb-2">
-              <h1 className="text-3xl font-bold text-slate-900">{data?.title}</h1>
+              <h1 className="text-3xl font-bold text-slate-900">
+                {data?.title}
+              </h1>
               <span className="px-3 py-1 text-xs font-medium bg-slate-100 text-slate-600 rounded-md">
                 ID: {data?.testId}
               </span>
@@ -112,7 +114,7 @@ export default function TestDetailsPage({
               </p>
             )}
           </div>
-          
+
           <div className="flex items-center gap-3">
             {pageType === 'runTestDetail' ? (
               testStatus?.data?.[0].runStatus === 'Active' ? (
@@ -123,10 +125,13 @@ export default function TestDetailsPage({
                   runId={runId}
                   variant="detailPageUpdate"
                   currStatus={testStatus?.data?.[0]?.status}
+                  currComment={(testStatusHistory as any)?.data?.[0]?.comment}
                 />
               ) : null
             ) : (
-              <Button size="default" onClick={editTestClicked}>Edit Test</Button>
+              <Button size="default" onClick={editTestClicked}>
+                Edit Test
+              </Button>
             )}
             {testStatusHistory && (
               <TestStatusHistroyDialog
@@ -134,10 +139,7 @@ export default function TestDetailsPage({
                 pageType={pageType}
               />
             )}
-            <Button
-              size="default"
-              variant="outline"
-              onClick={handleGoBack}>
+            <Button size="default" variant="outline" onClick={handleGoBack}>
               Go Back
             </Button>
           </div>
@@ -148,7 +150,9 @@ export default function TestDetailsPage({
       <div className="flex-1 overflow-y-auto space-y-6 pr-2">
         {/* Basic Info Card */}
         <div className="bg-white rounded-lg border border-slate-200 p-6">
-          <h2 className="text-lg font-semibold text-slate-900 mb-4">Basic Information</h2>
+          <h2 className="text-lg font-semibold text-slate-900 mb-4">
+            Basic Information
+          </h2>
           <div className="grid grid-cols-4 gap-6">
             <div>
               <InputLabels labelName="Section" />
@@ -190,7 +194,9 @@ export default function TestDetailsPage({
 
         {/* Properties Card */}
         <div className="bg-white rounded-lg border border-slate-200 p-6">
-          <h2 className="text-lg font-semibold text-slate-900 mb-4">Test Properties</h2>
+          <h2 className="text-lg font-semibold text-slate-900 mb-4">
+            Test Properties
+          </h2>
           <div className="grid grid-cols-3 gap-x-6 gap-y-5">
             <OptionContent data={data?.squad} heading="Squad" />
             <OptionContent
@@ -204,7 +210,10 @@ export default function TestDetailsPage({
             />
             <OptionContent data={data?.type} heading="Type" />
             <OptionContent data={data?.platform} heading="Platform" />
-            <OptionContent data={data?.testCoveredBy} heading="Test Covered By" />
+            <OptionContent
+              data={data?.testCoveredBy}
+              heading="Test Covered By"
+            />
             <LinkContent heading="Jira Ticket" data={data?.jiraTicket} />
             <OptionContent data={data?.defects} heading="Defects" />
             <OptionContent data={data?.automationId} heading="Automation ID" />
@@ -213,11 +222,16 @@ export default function TestDetailsPage({
 
         {/* Test Details Card */}
         <div className="bg-white rounded-lg border border-slate-200 p-6">
-          <h2 className="text-lg font-semibold text-slate-900 mb-4">Test Details</h2>
+          <h2 className="text-lg font-semibold text-slate-900 mb-4">
+            Test Details
+          </h2>
           <div className="space-y-5">
             <TextContent data={data?.preConditions} heading="Preconditions" />
             <TextContent data={data?.steps} heading="Steps" />
-            <TextContent data={data?.expectedResult} heading="Expected Result" />
+            <TextContent
+              data={data?.expectedResult}
+              heading="Expected Result"
+            />
             <TextContent
               data={data?.additionalGroups}
               heading="Additional Groups"

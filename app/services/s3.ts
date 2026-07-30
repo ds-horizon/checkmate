@@ -1,4 +1,5 @@
 import {
+  DeleteObjectCommand,
   GetObjectCommand,
   PutObjectCommand,
   S3Client,
@@ -18,13 +19,23 @@ export const getS3Client = (): S3Client => {
 }
 
 const MAX_FILENAME_LENGTH = 100
+const ATTACHMENT_KEY_PREFIX = 'test-run-attachments/'
+// test-run-attachments/<uuid>-<sanitized filename>
+const ATTACHMENT_KEY_PATTERN =
+  /^test-run-attachments\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-[a-zA-Z0-9._-]+$/
 
 export const buildAttachmentKey = (fileName: string): string => {
   const safeName = fileName
     .replace(/[^a-zA-Z0-9._-]/g, '_')
     .slice(-MAX_FILENAME_LENGTH)
-  return `test-run-attachments/${randomUUID()}-${safeName}`
+  return `${ATTACHMENT_KEY_PREFIX}${randomUUID()}-${safeName}`
 }
+
+// Only keys shaped like buildAttachmentKey's output are allowed through to a
+// PutObject/GetObject/DeleteObject call, so a client can never reference or
+// sign an arbitrary key elsewhere in the bucket.
+export const isValidAttachmentKey = (key: string): boolean =>
+  ATTACHMENT_KEY_PATTERN.test(key)
 
 export const uploadAttachment = async ({
   key,
@@ -51,6 +62,10 @@ export const uploadAttachment = async ({
 }
 
 export const getSignedAttachmentUrl = async (key: string): Promise<string> => {
+  if (!isValidAttachmentKey(key)) {
+    throw new Error(`Refusing to sign an unexpected attachment key: ${key}`)
+  }
+
   const bucket = process.env.S3_BUCKET
   if (!bucket) {
     throw new Error('S3_BUCKET is not configured')
@@ -65,4 +80,17 @@ export const getSignedAttachmentUrl = async (key: string): Promise<string> => {
     }),
     {expiresIn: SIGNED_URL_EXPIRY_SECONDS},
   )
+}
+
+export const deleteAttachment = async (key: string): Promise<void> => {
+  if (!isValidAttachmentKey(key)) {
+    throw new Error(`Refusing to delete an unexpected attachment key: ${key}`)
+  }
+
+  const bucket = process.env.S3_BUCKET
+  if (!bucket) {
+    throw new Error('S3_BUCKET is not configured')
+  }
+
+  await getS3Client().send(new DeleteObjectCommand({Bucket: bucket, Key: key}))
 }

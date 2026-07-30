@@ -1,0 +1,1 @@
+ALTER TABLE `testRunsStatusHistory` ADD `attachments` json;

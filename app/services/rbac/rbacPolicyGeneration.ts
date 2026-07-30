@@ -112,6 +112,11 @@ export function generateRbacPolicy(): IRbacPolicy[] {
         role = AccessType.USER
         action = ApiTypes.POST
         break
+
+      case API.DeleteAttachment:
+        role = AccessType.USER
+        action = ApiTypes.DELETE
+        break
     }
 
     rbacPolicy.push({role, resource, action})

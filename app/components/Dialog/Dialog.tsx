@@ -16,6 +16,7 @@ interface DialogComponentProps {
   footerComponent?: ReactNode
   isDialogTriggerDisabled?: boolean
   variant?: 'delete' | 'edit' | 'add'
+  onOpenChange?: (open: boolean) => void
 }
 
 const dialogVariants = cva('gap-0 border-t-[3px] border-x-0 border-b-0', {
@@ -43,18 +44,21 @@ export const CustomDialog = ({
   contentComponent,
   isDialogTriggerDisabled = false,
   variant,
+  onOpenChange,
 }: DialogComponentProps) => {
   return (
-    <Dialog>
+    <Dialog onOpenChange={onOpenChange}>
       <DialogTrigger
         aria-describedby="dialog-trigger"
         asChild
-        disabled={isDialogTriggerDisabled}>
+        disabled={isDialogTriggerDisabled}
+      >
         {anchorComponent}
       </DialogTrigger>
       <DialogContent
         aria-describedby="dialog content"
-        className={cn(dialogVariants({variant}))}>
+        className={cn(dialogVariants({variant}))}
+      >
         <DialogHeader aria-describedby="dialog-header">
           {headerComponent}
         </DialogHeader>

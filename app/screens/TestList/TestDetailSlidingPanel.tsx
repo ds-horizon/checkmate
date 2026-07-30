@@ -108,17 +108,23 @@ export const TestDetailDrawer = ({
                 {data?.description && (
                   <div className="mb-4">
                     <InputLabels labelName="Description" />
-                    <p className="text-sm text-slate-700 mt-1.5">{data?.description}</p>
+                    <p className="text-sm text-slate-700 mt-1.5">
+                      {data?.description}
+                    </p>
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <InputLabels labelName="Test ID" />
-                    <p className="text-sm text-slate-700 mt-1.5">{data?.testId}</p>
+                    <p className="text-sm text-slate-700 mt-1.5">
+                      {data?.testId}
+                    </p>
                   </div>
                   <div>
                     <InputLabels labelName="Section" />
-                    <p className="text-sm text-slate-700 mt-1.5">{data?.section}</p>
+                    <p className="text-sm text-slate-700 mt-1.5">
+                      {data?.section}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -144,13 +150,19 @@ export const TestDetailDrawer = ({
                   />
                   <LinkContent heading="Jira Ticket" data={data?.jiraTicket} />
                   <OptionContent data={data?.defects} heading="Defects" />
-                  <OptionContent data={data?.automationId} heading="Automation ID" />
+                  <OptionContent
+                    data={data?.automationId}
+                    heading="Automation ID"
+                  />
                 </div>
               </div>
 
               {/* Test Details */}
               <div className="bg-white rounded-lg border border-slate-200 p-5 space-y-4">
-                <TextContent data={data?.preConditions} heading="Preconditions" />
+                <TextContent
+                  data={data?.preConditions}
+                  heading="Preconditions"
+                />
                 <TextContent data={data?.steps} heading="Steps" />
                 <TextContent
                   data={data?.expectedResult}
@@ -167,26 +179,34 @@ export const TestDetailDrawer = ({
           {/* Fixed Footer */}
           <div className="flex-shrink-0 px-6 py-4 bg-white border-t border-slate-200">
             <div className="flex items-center justify-end gap-3">
-              {pageType === 'runTestDetail' && runActive && testStatusHistory && (
-                <AddResultDialog
-                  getSelectedRows={() => {
-                    return [{testId: props.testId}]
-                  }}
-                  runId={props?.runId ?? 0}
-                  variant="detailPageUpdate"
-                  currStatus={
-                    (testStatusHistory?.data?.[0]?.status as TestStatusType) ??
-                    (TestStatusType.Untested as TestStatusType)
-                  }
-                />
-              )}
+              {pageType === 'runTestDetail' &&
+                runActive &&
+                testStatusHistory && (
+                  <AddResultDialog
+                    getSelectedRows={() => {
+                      return [{testId: props.testId}]
+                    }}
+                    runId={props?.runId ?? 0}
+                    variant="detailPageUpdate"
+                    currStatus={
+                      (testStatusHistory?.data?.[0]
+                        ?.status as TestStatusType) ??
+                      (TestStatusType.Untested as TestStatusType)
+                    }
+                    currComment={testStatusHistory?.data?.[0]?.comment}
+                  />
+                )}
               {testStatusHistory && (
                 <TestStatusHistroyDialog
                   data={testStatusHistory}
                   pageType={pageType}
                 />
               )}
-              <Button variant="default" size="default" onClick={testDetailClicked}>
+              <Button
+                variant="default"
+                size="default"
+                onClick={testDetailClicked}
+              >
                 View Full Details
               </Button>
             </div>

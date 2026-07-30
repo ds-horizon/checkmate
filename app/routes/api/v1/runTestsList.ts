@@ -14,6 +14,7 @@ export interface Tests {
   testId: number
   title: string
   testStatus: string
+  comment: string | null
   priority: string
   platform: string
   squadName: string

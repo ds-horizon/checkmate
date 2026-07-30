@@ -112,7 +112,7 @@ export const testRunMap = mysqlTable(
       .notNull()
       .default(sql`CURRENT_TIMESTAMP`)
       .onUpdateNow(),
-    comment: varchar('comment', {length: 200}),
+    comment: text('comment'),
   },
   (testRunMap) => {
     return {

@@ -1,5 +1,6 @@
 import {loader} from '~/routes/api/v1/testStatusHistoryOfRun'
 import TestRunsController from '@controllers/testRuns.controller'
+import {getSignedAttachmentUrl} from '@services/s3'
 import {getUserAndCheckAccess} from '~/routes/utilities/checkForUserAndAccess'
 import {
   responseHandler,
@@ -12,6 +13,7 @@ jest.mock('@controllers/testRuns.controller')
 jest.mock('~/routes/utilities/responseHandler')
 jest.mock('~/routes/utilities/checkForUserAndAccess')
 jest.mock('~/routes/utilities/utils')
+jest.mock('@services/s3')
 
 describe('Get Test Status History in Run - Loader Function', () => {
   beforeEach(() => {
@@ -57,8 +59,50 @@ describe('Get Test Status History in Run - Loader Function', () => {
       testId: 123,
       runId: 456,
     })
+    expect(getSignedAttachmentUrl).not.toHaveBeenCalled()
     expect(responseHandler).toHaveBeenCalledWith({
       data: mockTestStatusData,
+      status: 200,
+    })
+  })
+
+  it('should resolve attachments to signed URLs when present', async () => {
+    const request = new Request('http://localhost?testId=123&runId=456', {
+      method: 'GET',
+    })
+    const mockTestStatusData = [
+      {
+        status: 'Passed',
+        updatedBy: 'John Doe',
+        updatedOn: '2024-11-20T14:17:36.000Z',
+        comment: 'All checks passed',
+        attachments: ['test-run-attachments/abc-screenshot.png'],
+      },
+    ]
+
+    ;(getUserAndCheckAccess as jest.Mock).mockResolvedValue(true)
+    ;(checkForTestId as jest.Mock).mockReturnValue(true)
+    ;(checkForRunId as jest.Mock).mockReturnValue(true)
+    ;(
+      TestRunsController.getTestStatusHistoryOfRun as jest.Mock
+    ).mockResolvedValue(mockTestStatusData)
+    ;(getSignedAttachmentUrl as jest.Mock).mockResolvedValue(
+      'https://signed.example.com/screenshot.png',
+    )
+    ;(responseHandler as jest.Mock).mockImplementation((response) => response)
+
+    await loader({params: {}, request} as any)
+
+    expect(getSignedAttachmentUrl).toHaveBeenCalledWith(
+      'test-run-attachments/abc-screenshot.png',
+    )
+    expect(responseHandler).toHaveBeenCalledWith({
+      data: [
+        {
+          ...mockTestStatusData[0],
+          attachments: ['https://signed.example.com/screenshot.png'],
+        },
+      ],
       status: 200,
     })
   })

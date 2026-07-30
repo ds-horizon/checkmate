@@ -100,6 +100,7 @@ const TestRunsController = {
           testId: item.testId,
           status: item.status as TestStatusType,
           comment: item?.comment ?? comment,
+          attachments: item?.attachments,
         })
         continue
       }

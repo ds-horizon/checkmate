@@ -1,14 +1,16 @@
 import {API} from '~/routes/utilities/api'
 import {TestStatusType} from '@controllers/types'
 import {useFetcher} from '@remix-run/react'
-import {ChevronDown} from 'lucide-react'
+import {ChevronDown, X} from 'lucide-react'
 import {useEffect, useState} from 'react'
 import {ComboboxDemo} from '~/components/ComboBox/ComboBox'
 import {CustomDialog} from '~/components/Dialog/Dialog'
 import {Loader} from '~/components/Loader/Loader'
 import {Button} from '~/ui/button'
 import {DialogClose, DialogTitle} from '~/ui/dialog'
+import {Input} from '~/ui/input'
 import {Textarea} from '~/ui/textarea'
+import {useToast} from '~/ui/use-toast'
 import {getStatusColor, getStatusTextColor} from '../TestDetail/util'
 import {cn} from '@ui/utils'
 
@@ -46,6 +48,9 @@ export const AddResultDialog = ({
   const [status, setStatus] = useState(currStatus ?? '')
   const [comment, setComment] = useState('')
   const [shouldAnimate, setShouldAnimate] = useState(false)
+  const [attachments, setAttachments] = useState<string[]>([])
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false)
+  const {toast} = useToast()
 
   // Keep status in sync with currStatus so that reopening the dialog to edit
   // an already-submitted result (e.g. to update the comment) prefills the
@@ -55,6 +60,7 @@ export const AddResultDialog = ({
   useEffect(() => {
     setStatus(currStatus ?? '')
     setComment('')
+    setAttachments([])
   }, [currStatus])
 
   useEffect(() => {
@@ -65,10 +71,53 @@ export const AddResultDialog = ({
     }
   }, [isAddResultEnabled])
 
+  const onFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+
+    setIsUploadingAttachment(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const response = await fetch(`/${API.UploadAttachment}`, {
+        method: 'POST',
+        body: formData,
+      })
+      const result = await response.json()
+
+      if (!response.ok || result?.error) {
+        toast({
+          variant: 'destructive',
+          description: result?.error ?? 'Failed to upload attachment',
+        })
+        return
+      }
+
+      setAttachments((prev) => [...prev, result.data.key])
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        description: 'Failed to upload attachment',
+      })
+    } finally {
+      setIsUploadingAttachment(false)
+    }
+  }
+
+  const removeAttachment = (index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index))
+  }
+
   const onAddResultSubmited = () => {
     const selectedRows = getSelectedRows()
     const updatedSelectedRows = selectedRows.map((row) => {
-      return {testId: Number(row.testId), status: status}
+      return {
+        testId: Number(row.testId),
+        status: status,
+        ...(attachments.length ? {attachments} : {}),
+      }
     })
     updateStatusFetcher.submit(
       {
@@ -175,6 +224,39 @@ export const AddResultDialog = ({
             />
             <p className="pt-1 text-xs text-slate-500">Optional: Add any relevant notes or observations</p>
           </div>
+          <div className="space-y-2.5">
+            <label htmlFor="attachments" className="text-sm font-semibold text-slate-700">
+              Screenshots
+            </label>
+            <Input
+              id="attachments"
+              type="file"
+              accept="image/*"
+              disabled={isUploadingAttachment}
+              onChange={onFileSelected}
+            />
+            {isUploadingAttachment && (
+              <p className="pt-1 text-xs text-slate-500">Uploading...</p>
+            )}
+            {attachments.length > 0 && (
+              <div className="flex gap-2 flex-wrap pt-1">
+                {attachments.map((key, index) => (
+                  <div key={key} className="relative">
+                    <div className="h-14 w-14 rounded border border-slate-200 bg-slate-100 flex items-center justify-center text-xs text-slate-500 truncate px-1">
+                      Image {index + 1}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeAttachment(index)}
+                      className="absolute -top-1.5 -right-1.5 bg-slate-900 text-white rounded-full p-0.5">
+                      <X size={10} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="pt-1 text-xs text-slate-500">Optional: Attach one or more screenshots</p>
+          </div>
         </div>
       }
       footerComponent={
@@ -188,13 +270,17 @@ export const AddResultDialog = ({
                 Cancel
               </Button>
             </DialogClose>
-            <DialogClose disabled={status === ''} asChild>
+            <DialogClose disabled={status === '' || isUploadingAttachment} asChild>
               <Button
                 type="button"
                 variant="default"
                 onClick={onAddResultSubmited}
                 className="flex-1 bg-slate-900 hover:bg-slate-800"
-                disabled={updateStatusFetcher.state !== 'idle' || status === ''}>
+                disabled={
+                  updateStatusFetcher.state !== 'idle' ||
+                  status === '' ||
+                  isUploadingAttachment
+                }>
                 Submit Result
               </Button>
             </DialogClose>

@@ -274,17 +274,18 @@ const TestRunsDao = {
       })
 
       statusSqlChunks.push(sql`end)`)
-      commentSqlChunks.push(sql`end)`)
+      // Rows whose testId has no comment in this batch fall through to this
+      // else branch, which keeps the previously stored comment instead of
+      // blanking/nulling it out.
+      commentSqlChunks.push(sql`else ${testRunMap.comment} end)`)
       const finalStatusSqlChunks: SQL = sql.join(statusSqlChunks, sql.raw(' '))
-      const finalCommentSql: SQL = isCommentPresent
-        ? sql.join(commentSqlChunks, sql.raw(' '))
-        : sql`''`
+      const finalCommentSql: SQL = sql.join(commentSqlChunks, sql.raw(' '))
 
       const data = dbClient
         .update(testRunMap)
         .set({
           status: finalStatusSqlChunks,
-          comment: finalCommentSql,
+          ...(isCommentPresent ? {comment: finalCommentSql} : {}),
           updatedOn: new Date(),
           updatedBy: params.userId,
         })

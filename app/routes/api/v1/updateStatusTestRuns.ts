@@ -1,5 +1,6 @@
 import RunsController from '@controllers/runs.controller'
 import {ActionFunctionArgs} from '@remix-run/node'
+import {isValidAttachmentKey} from '@services/s3'
 import {z} from 'zod'
 import TestRunsController from '~/dataController/testRuns.controller'
 import {API} from '~/routes/utilities/api'
@@ -18,7 +19,11 @@ const UpdateStatusTestRunsRequestSchema = z.object({
       testId: z.number().gt(0).optional(),
       status: z.string().optional(),
       comment: z.string().optional(),
-      attachments: z.array(z.string()).optional(),
+      attachments: z
+        .array(
+          z.string().refine(isValidAttachmentKey, 'Invalid attachment key'),
+        )
+        .optional(),
     }),
   ),
   projectId: z.number().gt(0).optional(),

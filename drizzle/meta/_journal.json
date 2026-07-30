@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1785378032552,
+      "tag": "0000_broad_green_goblin",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1785378090602,
+      "tag": "0001_real_scarecrow",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1785383340174,
+      "tag": "0002_chubby_shape",
+      "breakpoints": true
+    }
+  ]
+}

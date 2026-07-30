@@ -107,6 +107,11 @@ export function generateRbacPolicy(): IRbacPolicy[] {
         role = AccessType.READER
         action = ApiTypes.POST
         break
+
+      case API.UploadAttachment:
+        role = AccessType.USER
+        action = ApiTypes.POST
+        break
     }
 
     rbacPolicy.push({role, resource, action})

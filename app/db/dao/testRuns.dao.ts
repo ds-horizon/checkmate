@@ -38,6 +38,7 @@ interface IUpdateTestStatus {
     status: TestStatusType
     testId: number
     comment?: string
+    attachments?: string[]
   }[]
   userId: number
 }
@@ -298,6 +299,7 @@ const TestRunsDao = {
             updatedBy: params.userId,
             updatedOn: new Date(),
             comment: item.comment,
+            attachments: item.attachments,
           }
         })
 
@@ -408,6 +410,7 @@ const TestRunsDao = {
           updatedBy: users.userName,
           updatedOn: testRunsStatusHistory.updatedOn,
           comment: testRunsStatusHistory.comment,
+          attachments: testRunsStatusHistory.attachments,
         })
         .from(testRunsStatusHistory)
         .leftJoin(users, eq(users.userId, testRunsStatusHistory.updatedBy))

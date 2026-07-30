@@ -1,5 +1,6 @@
 import TestRunsController from '@controllers/testRuns.controller'
 import {LoaderFunctionArgs} from '@remix-run/node'
+import {getSignedAttachmentUrl} from '@services/s3'
 import {API} from '~/routes/utilities/api'
 import {getUserAndCheckAccess} from '~/routes/utilities/checkForUserAndAccess'
 import {
@@ -38,7 +39,22 @@ export async function loader({params, request}: LoaderFunctionArgs) {
       testId,
     })
 
-    return responseHandler({data: testStatusData, status: 200})
+    const testStatusDataWithSignedAttachments = await Promise.all(
+      (testStatusData ?? []).map(async (entry) => {
+        if (!entry.attachments || entry.attachments.length === 0) {
+          return entry
+        }
+        const signedAttachments = await Promise.all(
+          entry.attachments.map((key) => getSignedAttachmentUrl(key)),
+        )
+        return {...entry, attachments: signedAttachments}
+      }),
+    )
+
+    return responseHandler({
+      data: testStatusDataWithSignedAttachments,
+      status: 200,
+    })
   } catch (error: any) {
     return errorResponseHandler(error)
   }

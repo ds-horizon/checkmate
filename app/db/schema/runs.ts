@@ -41,6 +41,7 @@ export const testRunsStatusHistory = mysqlTable(
       .default(sql`CURRENT_TIMESTAMP`)
       .notNull(),
     comment: text('comment'),
+    attachments: json('attachments').$type<string[]>(),
     totalTestCase: int('totalTestCase').default(0),
     passedTestCase: int('passedTestCase').default(0),
     failedTestCase: int('failedTestCase').default(0),

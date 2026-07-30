@@ -13,6 +13,9 @@ export interface StatusEntry {
   updatedBy: string
   updatedOn: string
   comment: string | null
+  // Only populated for the run-scoped history (testRunsStatusHistory);
+  // the test-detail history (testRunMap) does not store attachments.
+  attachments?: string[] | null
 }
 
 export async function loader({params, request}: LoaderFunctionArgs) {

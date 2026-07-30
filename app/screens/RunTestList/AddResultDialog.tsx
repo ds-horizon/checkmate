@@ -260,7 +260,7 @@ export const AddResultDialog = ({
               placeholder="Add optional notes about this test result..."
               value={comment}
               onChange={(e) => setComment(e.target.value)}
-              className="min-h-[100px] resize-none"
+              className="min-h-[200px] resize-y"
             />
             <p className="pt-1 text-xs text-slate-500">
               Optional: Add any relevant notes or observations

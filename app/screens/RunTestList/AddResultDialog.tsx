@@ -47,6 +47,16 @@ export const AddResultDialog = ({
   const [comment, setComment] = useState('')
   const [shouldAnimate, setShouldAnimate] = useState(false)
 
+  // Keep status in sync with currStatus so that reopening the dialog to edit
+  // an already-submitted result (e.g. to update the comment) prefills the
+  // existing status instead of leaving it blank and blocking Submit. Also
+  // clear any unsubmitted draft comment so a cancelled edit on one row can't
+  // leak into a later submission for another row/reopen.
+  useEffect(() => {
+    setStatus(currStatus ?? '')
+    setComment('')
+  }, [currStatus])
+
   useEffect(() => {
     if (isAddResultEnabled) {
       setShouldAnimate(true)

@@ -150,6 +150,7 @@ const TestRunsDao = {
       let testRunsQuery = dbClient
         .select({
           testStatus: sql`MAX(${testRunMap.status})`.as('testStatus'),
+          comment: sql`MAX(${testRunMap.comment})`.as('comment'),
           testId: testRunMap.testId,
           priority: priorityTable.priorityName,
           title: tests.title,

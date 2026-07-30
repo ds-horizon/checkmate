@@ -9,6 +9,7 @@ import {
 } from '@radix-ui/react-icons'
 import {useParams} from '@remix-run/react'
 import {ColumnDef} from '@tanstack/react-table'
+import {MessageSquare} from 'lucide-react'
 import {ReactNode, useState} from 'react'
 import {Checkbox} from '~/ui/checkbox'
 import {cn} from '~/ui/utils'
@@ -129,8 +130,9 @@ export const RunTestListColumnConfig: ColumnDef<Tests>[] = [
     cell: ({row}) => {
       const params = useParams()
       const runId = +(params['runId'] ?? 0)
+      const comment = row.original.comment
       return row.original.runStatus === 'Active' ? (
-        <div className="flex items-center justify-center">
+        <div className="flex items-center justify-center gap-1">
           <AddResultDialog
             getSelectedRows={() => {
               return [{testId: row.original.testId}]
@@ -139,10 +141,32 @@ export const RunTestListColumnConfig: ColumnDef<Tests>[] = [
             variant="runRowUpdate"
             currStatus={row.original.testStatus as TestStatusType}
           />
+          {comment && (
+            <Tooltip
+              anchor={
+                <MessageSquare
+                  size={16}
+                  className="text-slate-500 shrink-0 cursor-pointer"
+                />
+              }
+              content={<div className="max-w-[300px]">{comment}</div>}
+            />
+          )}
         </div>
       ) : (
-        <div className="flex items-center justify-center text-sm text-slate-700">
+        <div className="flex items-center justify-center gap-1 text-sm text-slate-700">
           {row.original.testStatus}
+          {comment && (
+            <Tooltip
+              anchor={
+                <MessageSquare
+                  size={16}
+                  className="text-slate-500 shrink-0 cursor-pointer"
+                />
+              }
+              content={<div className="max-w-[300px]">{comment}</div>}
+            />
+          )}
         </div>
       )
     },

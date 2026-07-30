@@ -37,6 +37,7 @@ export const TestStatusHistroyDialog = ({
             <TableRow>
               <TableHead className="w-[100px]">Status</TableHead>
               <TableHead>Updated By</TableHead>
+              <TableHead>Comment</TableHead>
               <TableHead className="text-right">
                 {pageType === 'testDetail' ? 'Run Name' : 'Updated On'}
               </TableHead>
@@ -47,6 +48,18 @@ export const TestStatusHistroyDialog = ({
               <TableRow key={index}>
                 <TableCell className="truncate">{item.status}</TableCell>
                 <TableCell className="truncate">{item.updatedBy}</TableCell>
+                <TableCell className="max-w-[200px]">
+                  {item.comment ? (
+                    <Tooltip
+                      anchor={<div className="truncate">{item.comment}</div>}
+                      content={
+                        <div className="max-w-[300px]">{item.comment}</div>
+                      }
+                    />
+                  ) : (
+                    '-'
+                  )}
+                </TableCell>
                 <TableCell className="text-right">
                   <Tooltip
                     anchor={

@@ -17,6 +17,8 @@ interface DialogComponentProps {
   isDialogTriggerDisabled?: boolean
   variant?: 'delete' | 'edit' | 'add'
   onOpenChange?: (open: boolean) => void
+  open?: boolean
+  contentClassName?: string
 }
 
 const dialogVariants = cva('gap-0 border-t-[3px] border-x-0 border-b-0', {
@@ -45,27 +47,23 @@ export const CustomDialog = ({
   isDialogTriggerDisabled = false,
   variant,
   onOpenChange,
+  open,
+  contentClassName,
 }: DialogComponentProps) => {
   return (
-    <Dialog onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger
-        aria-describedby="dialog-trigger"
         asChild
         disabled={isDialogTriggerDisabled}
       >
         {anchorComponent}
       </DialogTrigger>
       <DialogContent
-        aria-describedby="dialog content"
-        className={cn(dialogVariants({variant}))}
+        className={cn(dialogVariants({variant}), contentClassName)}
       >
-        <DialogHeader aria-describedby="dialog-header">
-          {headerComponent}
-        </DialogHeader>
+        <DialogHeader>{headerComponent}</DialogHeader>
         {contentComponent}
-        <DialogFooter aria-describedby="dialog-footer">
-          {footerComponent}
-        </DialogFooter>
+        <DialogFooter>{footerComponent}</DialogFooter>
       </DialogContent>
     </Dialog>
   )

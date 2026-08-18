@@ -60,18 +60,13 @@ export const StateDialog = ({
         </DialogTrigger>
       )}
       <DialogContent
-        aria-describedby="dialog content"
         className={cn(dialogVariants({variant}))}>
         {headerComponent && (
-          <DialogHeader aria-describedby="dialog-header">
-            {headerComponent}
-          </DialogHeader>
+          <DialogHeader>{headerComponent}</DialogHeader>
         )}
         {contentComponent}
         {footerComponent && (
-          <DialogFooter aria-describedby="dialog-footer">
-            {footerComponent}
-          </DialogFooter>
+          <DialogFooter>{footerComponent}</DialogFooter>
         )}
       </DialogContent>
     </Dialog>

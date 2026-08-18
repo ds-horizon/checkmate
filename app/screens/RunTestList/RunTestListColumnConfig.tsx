@@ -9,7 +9,6 @@ import {
 } from '@radix-ui/react-icons'
 import {useParams} from '@remix-run/react'
 import {ColumnDef} from '@tanstack/react-table'
-import {MessageSquare} from 'lucide-react'
 import {ReactNode, useState} from 'react'
 import {Checkbox} from '~/ui/checkbox'
 import {cn} from '~/ui/utils'
@@ -133,42 +132,32 @@ export const RunTestListColumnConfig: ColumnDef<Tests>[] = [
       const params = useParams()
       const runId = +(params['runId'] ?? 0)
       const comment = row.original.comment
-      return row.original.runStatus === 'Active' ? (
-        <div className="flex items-center justify-center gap-1">
-          <AddResultDialog
-            getSelectedRows={() => {
-              return [{testId: row.original.testId}]
-            }}
-            runId={runId}
-            variant="runRowUpdate"
-            currStatus={row.original.testStatus as TestStatusType}
-            currComment={comment}
-          />
-          {comment && (
-            <Tooltip
-              anchor={
-                <MessageSquare
-                  size={16}
-                  className="text-slate-500 shrink-0 cursor-pointer"
-                />
-              }
-              content={<div className="max-w-[300px]">{comment}</div>}
+      return (
+        <div className="flex min-w-[150px] flex-col items-center gap-1.5 py-1">
+          {row.original.runStatus === 'Active' ? (
+            <AddResultDialog
+              getSelectedRows={() => {
+                return [{testId: row.original.testId}]
+              }}
+              runId={runId}
+              variant="runRowUpdate"
+              currStatus={row.original.testStatus as TestStatusType}
+              currComment={comment}
             />
+          ) : (
+            <span className="text-sm text-slate-700">{row.original.testStatus}</span>
           )}
-        </div>
-      ) : (
-        <div className="flex items-center justify-center gap-1 text-sm text-slate-700">
-          {row.original.testStatus}
-          {comment && (
-            <Tooltip
-              anchor={
-                <MessageSquare
-                  size={16}
-                  className="text-slate-500 shrink-0 cursor-pointer"
-                />
-              }
-              content={<div className="max-w-[300px]">{comment}</div>}
-            />
+          {comment ? (
+            <div className="w-full max-w-[240px] rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-left">
+              <span className="block text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                Result note
+              </span>
+              <p className="break-words whitespace-pre-wrap text-xs leading-relaxed text-slate-700">
+                {comment}
+              </p>
+            </div>
+          ) : (
+            <span className="text-[11px] text-slate-400">No result note</span>
           )}
         </div>
       )

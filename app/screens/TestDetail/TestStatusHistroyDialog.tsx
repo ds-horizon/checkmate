@@ -12,6 +12,12 @@ import {
 } from '@ui/table'
 import {useEffect} from 'react'
 import {getFormatedDate, shortDate} from '~/utils/getDate'
+import {
+  getAttachmentFileName,
+  getAttachmentKeyFromUrl,
+  ResultAttachment,
+  ResultAttachmentGallery,
+} from '../RunTestList/ResultAttachments'
 
 export const TestStatusHistroyDialog = ({
   data,
@@ -36,14 +42,15 @@ export const TestStatusHistroyDialog = ({
       return <div className="text-center mt-4">No Status History Found</div>
     } else {
       return (
-        <Table className="mt-4">
+        <div className="mt-4 max-h-[65vh] overflow-auto">
+          <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[100px]">Status</TableHead>
-              <TableHead>Updated By</TableHead>
-              <TableHead>Comment</TableHead>
-              {showAttachments && <TableHead>Attachments</TableHead>}
-              <TableHead className="text-right">
+              <TableHead scope="col" className="w-[100px]">Status</TableHead>
+              <TableHead scope="col">Updated By</TableHead>
+              <TableHead scope="col">Comment</TableHead>
+              {showAttachments && <TableHead scope="col">Attachments</TableHead>}
+              <TableHead scope="col" className="text-right">
                 {pageType === 'testDetail' ? 'Run Name' : 'Updated On'}
               </TableHead>
             </TableRow>
@@ -53,41 +60,35 @@ export const TestStatusHistroyDialog = ({
               <TableRow key={index}>
                 <TableCell className="truncate">{item.status}</TableCell>
                 <TableCell className="truncate">{item.updatedBy}</TableCell>
-                <TableCell className="max-w-[200px]">
+                <TableCell className="min-w-[180px] max-w-[360px]">
                   {item.comment ? (
-                    <Tooltip
-                      anchor={<div className="truncate">{item.comment}</div>}
-                      content={
-                        <div className="max-w-[300px]">{item.comment}</div>
-                      }
-                    />
+                    <div className="break-words whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+                      {item.comment}
+                    </div>
                   ) : (
-                    '-'
+                    <span className="text-slate-400">-</span>
                   )}
                 </TableCell>
                 {showAttachments && (
-                  <TableCell>
+                  <TableCell className="min-w-[220px]">
                     {item.attachments?.length ? (
-                      <div className="flex gap-1.5 flex-wrap">
-                        {item.attachments.map(
-                          (attachmentUrl: string, attachmentIndex: number) => (
-                            <a
-                              key={attachmentIndex}
-                              href={attachmentUrl}
-                              target="_blank"
-                              rel="noopener noreferrer">
-                              <img
-                                src={attachmentUrl}
-                                loading="lazy"
-                                alt="Attachment thumbnail"
-                                className="h-10 w-10 object-cover rounded border border-slate-200"
-                              />
-                            </a>
-                          ),
+                      <ResultAttachmentGallery
+                        attachments={item.attachments.map(
+                          (attachmentUrl: string, attachmentIndex: number): ResultAttachment => ({
+                            id: `history-${index}-${attachmentIndex}-${attachmentUrl}`,
+                            url: attachmentUrl,
+                            fileName:
+                              getAttachmentFileName(attachmentUrl) ||
+                              `Screenshot ${attachmentIndex + 1}`,
+                            key: getAttachmentKeyFromUrl(attachmentUrl),
+                            isExisting: true,
+                            status: 'ready',
+                          }),
                         )}
-                      </div>
+                        emptyLabel="No screenshots"
+                      />
                     ) : (
-                      '-'
+                      <span className="text-slate-400">No screenshots</span>
                     )}
                   </TableCell>
                 )}
@@ -106,7 +107,8 @@ export const TestStatusHistroyDialog = ({
               </TableRow>
             ))}
           </TableBody>
-        </Table>
+          </Table>
+        </div>
       )
     }
   }
@@ -116,6 +118,7 @@ export const TestStatusHistroyDialog = ({
       anchorComponent={<Button variant="outline">Status Log</Button>}
       headerComponent={<DialogTitle>Status Log</DialogTitle>}
       contentComponent={content()}
+      contentClassName="max-w-[min(96vw,1180px)]"
     />
   )
 }

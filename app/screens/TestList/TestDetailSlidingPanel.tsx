@@ -194,6 +194,7 @@ export const TestDetailDrawer = ({
                       (TestStatusType.Untested as TestStatusType)
                     }
                     currComment={testStatusHistory?.data?.[0]?.comment}
+                    currAttachments={testStatusHistory?.data?.[0]?.attachments}
                   />
                 )}
               {testStatusHistory && (

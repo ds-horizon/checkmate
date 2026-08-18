@@ -17,6 +17,8 @@ export type ComboBoxProps = {
   value: string
   onChange: (value: string) => void
   options: {value: string; label: string}[]
+  id?: string
+  'aria-labelledby'?: string
   searchStringPlaceholder?: string
   typePlaceholderString?: string
   emptyStateString?: string
@@ -27,11 +29,13 @@ export function ComboboxDemo(props: ComboBoxProps) {
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger>
+      <PopoverTrigger asChild>
         <Button
+          id={props.id}
           variant="outline"
           role="combobox"
           aria-expanded={open}
+          aria-labelledby={props['aria-labelledby']}
           className="w-[200px] justify-between">
           {props.value
             ? props.options.find((framework) => framework.value === props.value)

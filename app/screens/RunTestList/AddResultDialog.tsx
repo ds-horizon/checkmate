@@ -1,17 +1,21 @@
-import {API} from '~/routes/utilities/api'
 import {TestStatusType} from '@controllers/types'
 import {useFetcher} from '@remix-run/react'
-import {ChevronDown, X} from 'lucide-react'
-import {useEffect, useRef, useState} from 'react'
+import {ChevronDown, Loader2} from 'lucide-react'
+import {useEffect, useId, useRef, useState} from 'react'
+import {API} from '~/routes/utilities/api'
 import {ComboboxDemo} from '~/components/ComboBox/ComboBox'
 import {CustomDialog} from '~/components/Dialog/Dialog'
-import {Loader} from '~/components/Loader/Loader'
 import {Button} from '~/ui/button'
-import {DialogClose, DialogTitle} from '~/ui/dialog'
-import {Input} from '~/ui/input'
+import {DialogClose, DialogDescription, DialogTitle} from '~/ui/dialog'
 import {Textarea} from '~/ui/textarea'
 import {useToast} from '~/ui/use-toast'
 import {getStatusColor, getStatusTextColor} from '../TestDetail/util'
+import {
+  getAttachmentFileName,
+  getAttachmentKeyFromUrl,
+  ResultAttachment,
+  ResultAttachmentGallery,
+} from './ResultAttachments'
 import {cn} from '@ui/utils'
 
 const TEST_STATUS_OPTIONS = [
@@ -32,9 +36,24 @@ interface AddResultsDialogProps {
   variant?: 'bulkUpdate' | 'detailPageUpdate' | 'runRowUpdate'
   currStatus?: TestStatusType
   currComment?: string | null
+  currAttachments?: string[] | null
   isAddResultEnabled?: boolean
   containerClassName?: string
 }
+
+interface HistoryResponse {
+  data?: Array<{attachments?: string[] | null}>
+  error?: string | null
+}
+
+const createExistingAttachment = (url: string, index: number): ResultAttachment => ({
+  id: `existing-${index}-${url}`,
+  url,
+  fileName: getAttachmentFileName(url) || `Screenshot ${index + 1}`,
+  key: getAttachmentKeyFromUrl(url),
+  isExisting: true,
+  status: 'ready',
+})
 
 export const AddResultDialog = ({
   getSelectedRows,
@@ -43,6 +62,7 @@ export const AddResultDialog = ({
   variant,
   currStatus,
   currComment,
+  currAttachments,
   isAddResultEnabled = true,
   containerClassName,
 }: AddResultsDialogProps) => {
@@ -50,57 +70,119 @@ export const AddResultDialog = ({
   const [status, setStatus] = useState(currStatus ?? '')
   const [comment, setComment] = useState(currComment ?? '')
   const [shouldAnimate, setShouldAnimate] = useState(false)
-  const [attachments, setAttachments] = useState<string[]>([])
+  const [attachments, setAttachments] = useState<ResultAttachment[]>([])
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false)
+  const [isLoadingExistingAttachments, setIsLoadingExistingAttachments] =
+    useState(false)
+  const [isAttachmentHistoryPending, setIsAttachmentHistoryPending] =
+    useState(false)
+  const [attachmentLoadError, setAttachmentLoadError] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [removedExistingKeys, setRemovedExistingKeys] = useState<string[]>([])
   const {toast} = useToast()
-  const submittedRef = useRef(false)
-  const uploadCountRef = useRef(0)
-  // Identifies the current dialog "open session". Incremented every time the
-  // dialog opens so that an in-flight upload started in a previous session
-  // can tell, when it resolves, whether it's still part of the session that
-  // started it (as opposed to merely "the dialog happens to be open again").
   const sessionIdRef = useRef(0)
-  // Live open/closed signal, set synchronously (unlike isDialogOpen state)
-  // so an in-flight upload's resolution handler can tell whether the dialog
-  // is still open right now, not just whether its session id is unchanged.
-  // sessionIdRef alone isn't enough: closing the dialog doesn't change it,
-  // so an upload started before Cancel/close would otherwise look "current"
-  // when it resolves after close, leaking its attachment key into state
-  // with nothing left to ever clean it up.
   const isDialogOpenRef = useRef(false)
+  const attachmentHistoryPendingRef = useRef(false)
+  const activeUploadIdsRef = useRef(new Set<string>())
+  const cancelledUploadIdsRef = useRef(new Set<string>())
+  const saveRequestedRef = useRef(false)
+  const previousFetcherStateRef = useRef(updateStatusFetcher.state)
+  const committedRef = useRef(false)
+  const fieldId = useId().replace(/:/g, '')
 
-  // Re-prefill from props each time the dialog opens, so a cancelled edit
-  // never leaks a stale draft into the next open, and reopening to amend an
-  // existing comment starts from that comment rather than blank. On close
-  // without submitting (Cancel, Escape, overlay click), delete any
-  // already-uploaded attachments from S3 instead of leaving them orphaned.
+  const isEditing = variant === 'detailPageUpdate' || variant === 'runRowUpdate'
+  const isCommentRemovalBlocked =
+    isEditing && Boolean(currComment?.trim()) && comment.trim() === ''
+
+  const revokeDraftPreviewUrls = (draftAttachments: ResultAttachment[]) => {
+    draftAttachments.forEach((attachment) => {
+      if (!attachment.isExisting && attachment.url.startsWith('blob:')) {
+        URL.revokeObjectURL(attachment.url)
+      }
+    })
+  }
+
+  const cleanupDraftAttachments = (draftAttachments: ResultAttachment[]) => {
+    draftAttachments.forEach((attachment) => {
+      if (!attachment.isExisting && attachment.key) {
+        fetch(`/${API.DeleteAttachment}`, {
+          method: 'DELETE',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({key: attachment.key}),
+        }).catch(() => {})
+      }
+    })
+    revokeDraftPreviewUrls(draftAttachments)
+  }
+
+  const setInitialAttachments = (urls: string[]) => {
+    setAttachments(urls.map(createExistingAttachment))
+  }
+
+  const loadExistingAttachments = async () => {
+    const selectedRows = getSelectedRows()
+    if (selectedRows.length !== 1 || variant === 'bulkUpdate') return
+
+    attachmentHistoryPendingRef.current = true
+    setIsAttachmentHistoryPending(true)
+    setIsLoadingExistingAttachments(true)
+    setAttachmentLoadError(null)
+    const sessionId = sessionIdRef.current
+    try {
+      const response = await fetch(
+        `/${API.GetTestStatusHistoryInRun}?runId=${runId}&testId=${selectedRows[0].testId}`,
+      )
+      const result = (await response.json()) as HistoryResponse
+      if (!response.ok || result.error) {
+        throw new Error(result.error ?? 'Unable to load existing screenshots')
+      }
+      if (sessionId !== sessionIdRef.current || !isDialogOpenRef.current) return
+      setInitialAttachments(result.data?.[0]?.attachments ?? [])
+      attachmentHistoryPendingRef.current = false
+      setIsAttachmentHistoryPending(false)
+    } catch (error: any) {
+      if (sessionId !== sessionIdRef.current || !isDialogOpenRef.current) return
+      setAttachmentLoadError(error?.message ?? 'Unable to load existing screenshots')
+    } finally {
+      if (sessionId === sessionIdRef.current) setIsLoadingExistingAttachments(false)
+    }
+  }
+
   const onDialogOpenChange = (open: boolean) => {
     setIsDialogOpen(open)
     isDialogOpenRef.current = open
     if (open) {
       sessionIdRef.current += 1
-      // Discard any in-flight-upload bookkeeping from a previous, now-stale
-      // session: that session's uploads are no longer allowed to affect
-      // this session's Submit/"Uploading..." state (see uploadFile).
-      uploadCountRef.current = 0
+      activeUploadIdsRef.current.clear()
+      cancelledUploadIdsRef.current = new Set()
+      saveRequestedRef.current = false
+      committedRef.current = false
+      const shouldLoadExistingAttachments = isEditing && currAttachments === undefined
+      attachmentHistoryPendingRef.current = shouldLoadExistingAttachments
+      setIsAttachmentHistoryPending(shouldLoadExistingAttachments)
       setIsUploadingAttachment(false)
+      setIsSaving(false)
+      setSaveError(null)
+      setAttachmentLoadError(null)
+      setRemovedExistingKeys([])
       setStatus(currStatus ?? '')
       setComment(currComment ?? '')
-      setAttachments([])
-      submittedRef.current = false
+      setInitialAttachments(currAttachments ?? [])
+      if (shouldLoadExistingAttachments) void loadExistingAttachments()
       return
     }
 
-    if (!submittedRef.current) {
-      attachments.forEach((key) => {
-        fetch(`/${API.DeleteAttachment}`, {
-          method: 'DELETE',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({key}),
-        }).catch(() => {})
-      })
-    }
+    attachmentHistoryPendingRef.current = false
+    setIsAttachmentHistoryPending(false)
+    cancelledUploadIdsRef.current = new Set(
+      attachments.filter((attachment) => !attachment.isExisting).map((attachment) => attachment.id),
+    )
+    activeUploadIdsRef.current.clear()
+    setIsUploadingAttachment(false)
+    if (!committedRef.current) cleanupDraftAttachments(attachments)
+    setAttachments([])
   }
 
   useEffect(() => {
@@ -111,48 +193,83 @@ export const AddResultDialog = ({
     }
   }, [isAddResultEnabled])
 
+  useEffect(() => {
+    const previousState = previousFetcherStateRef.current
+    previousFetcherStateRef.current = updateStatusFetcher.state
+    if (
+      !saveRequestedRef.current ||
+      previousState === 'idle' ||
+      updateStatusFetcher.state !== 'idle'
+    ) {
+      return
+    }
+
+    const result = updateStatusFetcher.data
+    const failedCount = result?.data?.failed?.count ?? 0
+    if (result?.error || result?.status >= 400 || failedCount > 0) {
+      const message =
+        result?.error ??
+        result?.data?.failed?.message ??
+        'The result could not be saved. Check the run and try again.'
+      setSaveError(message)
+      setIsSaving(false)
+      saveRequestedRef.current = false
+      return
+    }
+
+    removedExistingKeys.forEach((key) => {
+      fetch(`/${API.DeleteAttachment}`, {
+        method: 'DELETE',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({key}),
+      }).catch(() => {})
+    })
+    committedRef.current = true
+    revokeDraftPreviewUrls(attachments)
+    setAttachments([])
+    saveRequestedRef.current = false
+    setIsSaving(false)
+    setIsDialogOpen(false)
+    isDialogOpenRef.current = false
+    onAddResultSubmit?.()
+  }, [attachments, removedExistingKeys, updateStatusFetcher.data, updateStatusFetcher.state, onAddResultSubmit])
+
   const uploadFile = async (file: File) => {
     const sessionId = sessionIdRef.current
-    // Stale if either a new session has started, or the dialog has been
-    // closed (and possibly not reopened) since this upload began. Either
-    // way, the user isn't looking at this upload's session anymore.
-    // sessionIdRef alone can't catch "closed, never reopened": closing
-    // doesn't bump the session id, so it would otherwise still look current.
-    const isUploadStale = () =>
-      sessionId !== sessionIdRef.current || !isDialogOpenRef.current
-    uploadCountRef.current += 1
+    const attachmentId = `draft-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const previewUrl = URL.createObjectURL(file)
+    cancelledUploadIdsRef.current.delete(attachmentId)
+    setAttachments((prev) => [
+      ...prev,
+      {
+        id: attachmentId,
+        url: previewUrl,
+        fileName: file.name,
+        status: 'loading',
+      },
+    ])
+    activeUploadIdsRef.current.add(attachmentId)
     setIsUploadingAttachment(true)
+
+    const isUploadStale = () =>
+      sessionId !== sessionIdRef.current ||
+      !isDialogOpenRef.current ||
+      cancelledUploadIdsRef.current.has(attachmentId)
+
     try {
       const formData = new FormData()
       formData.append('file', file)
-
       const response = await fetch(`/${API.UploadAttachment}`, {
         method: 'POST',
         body: formData,
       })
       const result = await response.json()
-
       if (!response.ok || result?.error) {
-        // A stale upload's failure should be silent: surfacing a toast for
-        // it would be confusing noise in whatever session (if any) is now
-        // open.
-        if (!isUploadStale()) {
-          toast({
-            variant: 'destructive',
-            description: result?.error ?? 'Failed to upload attachment',
-          })
-        }
-        return
+        throw new Error(result?.error ?? 'Failed to upload screenshot')
       }
 
       const key = result.data.key
       if (isUploadStale()) {
-        // Dialog was closed and/or reopened into a new session before this
-        // upload resolved: it was never surfaced to the user in this
-        // session and won't be caught by the close-time cleanup loop
-        // (which only iterates attachments already in state), so clean it
-        // up here instead of leaking it into an unrelated session or
-        // leaving it orphaned in S3.
         fetch(`/${API.DeleteAttachment}`, {
           method: 'DELETE',
           headers: {'Content-Type': 'application/json'},
@@ -161,43 +278,46 @@ export const AddResultDialog = ({
         return
       }
 
-      setAttachments((prev) => [...prev, key])
-    } catch (error) {
+      setAttachments((prev) =>
+        prev.map((attachment) =>
+          attachment.id === attachmentId
+            ? {...attachment, key, status: 'ready'}
+            : attachment,
+        ),
+      )
+    } catch (error: any) {
       if (!isUploadStale()) {
-        toast({
-          variant: 'destructive',
-          description: 'Failed to upload attachment',
-        })
+        setAttachments((prev) =>
+          prev.map((attachment) =>
+            attachment.id === attachmentId
+              ? {
+                  ...attachment,
+                  status: 'error',
+                  error: error?.message ?? 'Failed to upload screenshot',
+                }
+              : attachment,
+          ),
+        )
       }
     } finally {
-      // Only touch the counter/flag for uploads that are still part of the
-      // current, open session. A stale upload's counter contribution was
-      // already discarded by the hard reset when the new session opened, so
-      // decrementing here for a stale upload would push the count negative
-      // and could incorrectly clear isUploadingAttachment for a real
-      // in-flight upload belonging to the current session.
-      if (!isUploadStale()) {
-        uploadCountRef.current = Math.max(0, uploadCountRef.current - 1)
-        setIsUploadingAttachment(uploadCountRef.current > 0)
+      if (activeUploadIdsRef.current.delete(attachmentId)) {
+        setIsUploadingAttachment(activeUploadIdsRef.current.size > 0)
       }
     }
   }
 
-  const onFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
+  const onFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? [])
     e.target.value = ''
-    if (!file) return
-    await uploadFile(file)
+    if (attachmentHistoryPendingRef.current) return
+    files.forEach((file) => void uploadFile(file))
   }
 
-  // Guarded on isDialogOpen so a paste anywhere on the page doesn't attach
-  // images while this dialog is closed. Only preventDefault when an image
-  // was actually found, so pasting text into the Comment field elsewhere in
-  // the dialog is unaffected.
   useEffect(() => {
     if (!isDialogOpen) return
 
     const onPaste = (event: ClipboardEvent) => {
+      if (attachmentHistoryPendingRef.current) return
       const images = Array.from(event.clipboardData?.items ?? [])
         .filter((item) => item.type.startsWith('image/'))
         .map((item, index) => {
@@ -212,43 +332,91 @@ export const AddResultDialog = ({
 
       if (images.length === 0) return
       event.preventDefault()
-      images.forEach((file) => {
-        uploadFile(file)
-      })
+      images.forEach((file) => void uploadFile(file))
     }
 
     document.addEventListener('paste', onPaste)
     return () => document.removeEventListener('paste', onPaste)
   }, [isDialogOpen])
 
-  const removeAttachment = (index: number) => {
-    const key = attachments[index]
-    setAttachments((prev) => prev.filter((_, i) => i !== index))
-    fetch(`/${API.DeleteAttachment}`, {
-      method: 'DELETE',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({key}),
-    }).catch(() => {
-      // Best-effort cleanup: the attachment is already gone from this draft
-      // either way, so a delete failure here shouldn't block the user.
-    })
+  const removeAttachment = (attachment: ResultAttachment) => {
+    cancelledUploadIdsRef.current.add(attachment.id)
+    if (activeUploadIdsRef.current.delete(attachment.id)) {
+      setIsUploadingAttachment(activeUploadIdsRef.current.size > 0)
+    }
+    setAttachments((prev) => prev.filter((item) => item.id !== attachment.id))
+    if (attachment.url.startsWith('blob:')) URL.revokeObjectURL(attachment.url)
+
+    if (attachment.isExisting && attachment.key) {
+      setRemovedExistingKeys((prev) =>
+        prev.includes(attachment.key as string)
+          ? prev
+          : [...prev, attachment.key as string],
+      )
+      return
+    }
+
+    if (attachment.key) {
+      fetch(`/${API.DeleteAttachment}`, {
+        method: 'DELETE',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({key: attachment.key}),
+      }).catch(() => {})
+    }
   }
 
-  const onAddResultSubmited = () => {
-    submittedRef.current = true
+  const onAddResultSubmitted = () => {
+    if (attachmentLoadError) {
+      setSaveError(
+        'Existing screenshots could not be loaded. Retry before saving so they are not removed.',
+      )
+      return
+    }
+
+    if (isCommentRemovalBlocked) {
+      setSaveError('Existing comments can be changed, but not removed yet. Keep a value to save.')
+      return
+    }
+
+    if (
+      !status ||
+      isUploadingAttachment ||
+      isAttachmentHistoryPending ||
+      isLoadingExistingAttachments ||
+      attachments.some((attachment) => attachment.status !== 'ready')
+    ) {
+      return
+    }
+
+    const invalidExistingAttachment = attachments.find(
+      (attachment) => attachment.isExisting && !attachment.key,
+    )
+    if (invalidExistingAttachment) {
+      setSaveError(
+        'One existing screenshot cannot be retained because its file key is unavailable. Remove it or refresh and try again.',
+      )
+      return
+    }
+
     const selectedRows = getSelectedRows()
-    const updatedSelectedRows = selectedRows.map((row) => {
-      return {
-        testId: Number(row.testId),
-        status: status,
-        ...(attachments.length ? {attachments} : {}),
-      }
-    })
+    const attachmentKeys = attachments
+      .map((attachment) => attachment.key)
+      .filter((key): key is string => Boolean(key))
+    const updatedSelectedRows = selectedRows.map((row) => ({
+      testId: Number(row.testId),
+      status,
+      comment,
+      attachments: attachmentKeys,
+    }))
+
+    setSaveError(null)
+    setIsSaving(true)
+    saveRequestedRef.current = true
     updateStatusFetcher.submit(
       {
         testIdStatusArray: updatedSelectedRows,
-        runId: runId,
-        comment: comment,
+        runId,
+        comment,
       },
       {
         method: 'PUT',
@@ -256,45 +424,48 @@ export const AddResultDialog = ({
         encType: 'application/json',
       },
     )
-    onAddResultSubmit?.()
   }
 
-  const triggerComponent = (variant: AddResultsDialogProps['variant']) => {
-    if (variant === 'detailPageUpdate') {
+  const triggerComponent = (triggerVariant: AddResultsDialogProps['variant']) => {
+    if (triggerVariant === 'detailPageUpdate') {
       return currStatus ? (
         <Button
+          type="button"
+          aria-label={`Edit result, current status ${currStatus}`}
           style={{
-            width: 'min-96',
             backgroundColor: getStatusColor(currStatus as TestStatusType),
             fontWeight: 500,
             color: currStatus === TestStatusType.Blocked ? 'white' : 'black',
           }}
         >
           {currStatus}
-          <ChevronDown size={22} strokeWidth={2} className="ml-2" />
+          <ChevronDown size={22} strokeWidth={2} className="ml-2" aria-hidden="true" />
         </Button>
       ) : null
     }
 
-    if (variant === 'runRowUpdate') {
+    if (triggerVariant === 'runRowUpdate') {
       return (
         <Button
+          type="button"
+          aria-label={`Edit result, current status ${currStatus ?? 'not set'}`}
           style={{
             backgroundColor: getStatusColor(currStatus as TestStatusType),
             fontWeight: 400,
-            width: 108,
             color: getStatusTextColor(currStatus as TestStatusType),
           }}
-          className="px-2 py-3 h-3"
+          className="h-8 gap-1.5 px-2.5 text-xs"
         >
-          {currStatus}
-          <ChevronDown size={16} strokeWidth={2} className="ml-2" />
+          <span>{currStatus}</span>
+          <span className="border-l border-current/30 pl-1.5">Edit</span>
+          <ChevronDown size={14} strokeWidth={2} aria-hidden="true" />
         </Button>
       )
     }
 
     return (
       <Button
+        type="button"
         disabled={!isAddResultEnabled}
         variant={isAddResultEnabled ? 'default' : 'outline'}
         size="default"
@@ -309,131 +480,175 @@ export const AddResultDialog = ({
     )
   }
 
-  if (updateStatusFetcher.state !== 'idle') {
-    return <Loader />
-  }
-
   return (
     <CustomDialog
+      open={isDialogOpen}
       onOpenChange={onDialogOpenChange}
       anchorComponent={
         <div className={containerClassName}>{triggerComponent(variant)}</div>
       }
       headerComponent={
-        <DialogTitle className="text-lg font-semibold text-slate-900">
-          Add Test Result
-        </DialogTitle>
+        <div>
+          <DialogTitle className="text-lg font-semibold text-slate-900">
+            {isEditing ? 'Edit Test Result' : 'Add Test Result'}
+          </DialogTitle>
+          <DialogDescription className="mt-1 text-sm text-slate-500">
+            Update the status, result note, and supporting screenshots.
+          </DialogDescription>
+        </div>
       }
+      contentClassName="max-h-[82vh] overflow-y-auto sm:max-w-[560px]"
       contentComponent={
-        <div className="pt-2 space-y-5">
+        <div className="space-y-5 pt-2" aria-busy={isSaving || isUploadingAttachment}>
           <div className="space-y-2.5">
             <label
-              htmlFor="status"
+              id={`${fieldId}-status-label`}
+              htmlFor={`${fieldId}-status`}
               className="text-sm font-semibold text-slate-700"
             >
               Status <span className="text-red-600">*</span>
             </label>
-
             <ComboboxDemo
+              id={`${fieldId}-status`}
+              aria-labelledby={`${fieldId}-status-label`}
               value={status}
               onChange={(value) => setStatus(value)}
               options={TEST_STATUS_OPTIONS}
             />
-
             {status === '' && (
-              <p className="pt-1 text-xs text-slate-500">
-                Please select a test status
-              </p>
+              <p className="pt-1 text-xs text-slate-500">Please select a test status</p>
             )}
           </div>
+
           <div className="space-y-2.5">
-            <label
-              htmlFor="comment"
-              className="text-sm font-semibold text-slate-700"
-            >
+            <label htmlFor={`${fieldId}-comment`} className="text-sm font-semibold text-slate-700">
               Comment
             </label>
             <Textarea
-              id="comment"
+              id={`${fieldId}-comment`}
               placeholder="Add optional notes about this test result..."
               value={comment}
               onChange={(e) => setComment(e.target.value)}
-              className="min-h-[200px] resize-y"
+              aria-describedby={`${fieldId}-comment-hint${
+                isCommentRemovalBlocked ? ` ${fieldId}-comment-removal-hint` : ''
+              }`}
+              className="min-h-[160px] resize-y leading-relaxed"
             />
-            <p className="pt-1 text-xs text-slate-500">
-              Optional: Add any relevant notes or observations
+            <p id={`${fieldId}-comment-hint`} className="pt-1 text-xs text-slate-500">
+              Optional. Long notes in English or Japanese will wrap automatically.
             </p>
-          </div>
-          <div className="space-y-2.5">
-            <label
-              htmlFor="attachments"
-              className="text-sm font-semibold text-slate-700"
-            >
-              Screenshots
-            </label>
-            <Input
-              id="attachments"
-              type="file"
-              accept="image/*"
-              disabled={isUploadingAttachment}
-              onChange={onFileSelected}
-            />
-            {isUploadingAttachment && (
-              <p className="pt-1 text-xs text-slate-500">Uploading...</p>
+            {isCommentRemovalBlocked && (
+              <p
+                id={`${fieldId}-comment-removal-hint`}
+                className="text-sm text-amber-700"
+                role="alert"
+              >
+                Existing comments can be changed, but not removed yet. Keep a value to save.
+              </p>
             )}
-            {attachments.length > 0 && (
-              <div className="flex gap-2 flex-wrap pt-1">
-                {attachments.map((key, index) => (
-                  <div key={key} className="relative">
-                    <div className="h-14 w-14 rounded border border-slate-200 bg-slate-100 flex items-center justify-center text-xs text-slate-500 truncate px-1">
-                      Image {index + 1}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => removeAttachment(index)}
-                      className="absolute -top-1.5 -right-1.5 bg-slate-900 text-white rounded-full p-0.5"
-                    >
-                      <X size={10} />
-                    </button>
-                  </div>
-                ))}
+          </div>
+
+          <div className="space-y-2.5">
+            <div className="flex items-baseline justify-between gap-3">
+              <label htmlFor={`${fieldId}-attachments`} className="text-sm font-semibold text-slate-700">
+                Screenshots
+              </label>
+              <span className="text-xs text-slate-500">PNG, JPG, GIF, or WebP · up to 10MB</span>
+            </div>
+            <input
+              id={`${fieldId}-attachments`}
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              multiple
+              disabled={
+                isSaving || isAttachmentHistoryPending || isLoadingExistingAttachments
+              }
+              onChange={onFileSelected}
+              aria-describedby={`${fieldId}-attachments-hint`}
+              className="flex min-h-10 w-full cursor-pointer rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white hover:border-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 disabled:cursor-not-allowed disabled:opacity-60"
+            />
+            {isLoadingExistingAttachments && (
+              <p className="flex items-center gap-1.5 text-xs text-slate-500" role="status">
+                <Loader2 size={13} className="animate-spin" aria-hidden="true" />
+                Loading existing screenshots...
+              </p>
+            )}
+            {attachmentLoadError && (
+              <div
+                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+                role="alert"
+              >
+                <span>{attachmentLoadError}</span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void loadExistingAttachments()}
+                  disabled={isLoadingExistingAttachments || isSaving}
+                  className="border-red-300 bg-white text-red-800 hover:bg-red-100 hover:text-red-900"
+                >
+                  Retry
+                </Button>
               </div>
             )}
-            <p className="pt-1 text-xs text-slate-500">
-              Optional: Attach one or more screenshots, or paste an image
-              with Cmd/Ctrl+V
+            <ResultAttachmentGallery
+              attachments={attachments}
+              onRemove={removeAttachment}
+              emptyLabel="No screenshots attached yet"
+              labelledBy={`${fieldId}-attachments`}
+            />
+            <p id={`${fieldId}-attachments-hint`} className="pt-1 text-xs text-slate-500">
+              {isAttachmentHistoryPending
+                ? attachmentLoadError
+                  ? 'Retry existing screenshots before adding new files.'
+                  : 'Loading existing screenshots. File selection and paste will be available when loading finishes.'
+                : 'Select one or more images, or paste an image with Cmd/Ctrl+V. Remove files before saving.'}
             </p>
           </div>
+
+          {saveError && (
+            <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">
+              {saveError}
+            </p>
+          )}
         </div>
       }
       footerComponent={
-        <updateStatusFetcher.Form method="POST" className="w-full">
-          <div className="flex gap-3 pt-2">
-            <DialogClose asChild>
-              <Button type="button" variant="outline" className="flex-1">
-                Cancel
-              </Button>
-            </DialogClose>
-            <DialogClose
-              disabled={status === '' || isUploadingAttachment}
-              asChild
-            >
-              <Button
-                type="button"
-                variant="default"
-                onClick={onAddResultSubmited}
-                className="flex-1 bg-slate-900 hover:bg-slate-800"
-                disabled={
-                  updateStatusFetcher.state !== 'idle' ||
-                  status === '' ||
-                  isUploadingAttachment
-                }
-              >
-                Submit Result
-              </Button>
-            </DialogClose>
-          </div>
-        </updateStatusFetcher.Form>
+        <div className="flex w-full flex-col-reverse gap-3 pt-2 sm:flex-row">
+          <DialogClose asChild>
+            <Button type="button" variant="outline" className="flex-1" disabled={isSaving}>
+              Cancel
+            </Button>
+          </DialogClose>
+          <Button
+            type="button"
+            variant="default"
+            onClick={onAddResultSubmitted}
+            className="flex-1 bg-slate-900 hover:bg-slate-800"
+            disabled={
+              !isAddResultEnabled ||
+              isSaving ||
+              status === '' ||
+              Boolean(attachmentLoadError) ||
+              isCommentRemovalBlocked ||
+              isUploadingAttachment ||
+              isAttachmentHistoryPending ||
+              isLoadingExistingAttachments ||
+              attachments.some((attachment) => attachment.status !== 'ready')
+            }
+          >
+            {isSaving ? (
+              <>
+                <Loader2 size={16} className="mr-2 animate-spin" aria-hidden="true" />
+                Saving...
+              </>
+            ) : isEditing ? (
+              'Save result'
+            ) : (
+              'Submit result'
+            )}
+          </Button>
+        </div>
       }
     />
   )

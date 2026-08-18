@@ -126,6 +126,7 @@ export default function TestDetailsPage({
                   variant="detailPageUpdate"
                   currStatus={testStatus?.data?.[0]?.status}
                   currComment={(testStatusHistory as any)?.data?.[0]?.comment}
+                  currAttachments={(testStatusHistory as any)?.data?.[0]?.attachments}
                 />
               ) : null
             ) : (

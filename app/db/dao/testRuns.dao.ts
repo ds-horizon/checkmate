@@ -152,6 +152,18 @@ const TestRunsDao = {
         .select({
           testStatus: sql`MAX(${testRunMap.status})`.as('testStatus'),
           comment: sql`MAX(${testRunMap.comment})`.as('comment'),
+          screenshotCount: sql<number>`COALESCE(
+            JSON_LENGTH((
+              SELECT ${testRunsStatusHistory.attachments}
+              FROM ${testRunsStatusHistory}
+              WHERE ${testRunsStatusHistory.runId} = ${runId}
+                AND ${testRunsStatusHistory.testId} = ${testRunMap.testId}
+              ORDER BY ${testRunsStatusHistory.updatedOn} DESC,
+                ${testRunsStatusHistory.testRunsStatusHistoryId} DESC
+              LIMIT 1
+            )),
+            0
+          )`.as('screenshotCount'),
           testId: testRunMap.testId,
           priority: priorityTable.priorityName,
           title: tests.title,
@@ -416,7 +428,10 @@ const TestRunsDao = {
         .from(testRunsStatusHistory)
         .leftJoin(users, eq(users.userId, testRunsStatusHistory.updatedBy))
         .where(and(...whereClauses))
-        .orderBy(desc(testRunsStatusHistory.updatedOn))
+        .orderBy(
+          desc(testRunsStatusHistory.updatedOn),
+          desc(testRunsStatusHistory.testRunsStatusHistoryId),
+        )
     } catch (error: any) {
       logger({
         type: LogType.SQL_ERROR,

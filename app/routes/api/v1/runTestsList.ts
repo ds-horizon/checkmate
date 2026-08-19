@@ -25,6 +25,7 @@ export interface Tests {
   sectionName: string
   sectionParentId: number | null
   sectionId: number
+  screenshotCount: number
 }
 
 export interface RunTestListResponseType {

@@ -90,6 +90,38 @@ describe('AddResultDialog', () => {
     expect(screen.getByRole('button', {name: 'Save result'})).toBeEnabled()
   })
 
+  it('uses the first, deterministically ordered history entry for screenshots', async () => {
+    const fetchMock = installFetchMock()
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: [
+          {
+            attachments: [
+              'https://signed.example.com/test-run-attachments/8b1e6f2a-1c2d-4e3f-9a0b-123456789abc-current.png?signature=abc',
+            ],
+          },
+          {attachments: []},
+        ],
+      }),
+    } as Response)
+
+    render(
+      <AddResultDialog
+        getSelectedRows={() => [{testId: 42}]}
+        runId={7}
+        variant="runRowUpdate"
+        currStatus={TestStatusType.Failed}
+      />,
+    )
+
+    fireEvent.click(
+      screen.getByRole('button', {name: 'Edit result, current status Failed'}),
+    )
+
+    expect(await screen.findByRole('img', {name: 'current.png'})).toBeInTheDocument()
+  })
+
   it('blocks saving when existing screenshots fail to load and offers retry', async () => {
     const fetchMock = installFetchMock()
     fetchMock

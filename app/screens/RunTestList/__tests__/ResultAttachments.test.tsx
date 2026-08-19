@@ -6,10 +6,33 @@ import {
   getAttachmentFileName,
   getAttachmentKeyFromUrl,
   ResultAttachmentGallery,
+  ResultScreenshotCount,
 } from '../ResultAttachments'
 
 const signedScreenshotUrl =
   'https://signed.example.com/test-run-attachments/8b1e6f2a-1c2d-4e3f-9a0b-123456789abc-japanese-shot.png?signature=abc'
+
+describe('ResultScreenshotCount', () => {
+  it('renders nothing when there are no screenshots', () => {
+    const {container} = render(<ResultScreenshotCount count={0} />)
+
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('uses singular copy and exposes the exact accessible count', () => {
+    render(<ResultScreenshotCount count={1} />)
+
+    expect(screen.getByRole('img', {name: '1 screenshot attached'})).toBeInTheDocument()
+    expect(screen.getByText('1 screenshot')).toBeInTheDocument()
+  })
+
+  it('uses plural copy for multiple screenshots', () => {
+    render(<ResultScreenshotCount count={2} />)
+
+    expect(screen.getByRole('img', {name: '2 screenshots attached'})).toBeInTheDocument()
+    expect(screen.getByText('2 screenshots')).toBeInTheDocument()
+  })
+})
 
 describe('ResultAttachmentGallery', () => {
   it('extracts a safe display filename and write key from a signed URL', () => {

@@ -14,6 +14,34 @@ export interface ResultAttachment {
   isExisting?: boolean
 }
 
+export interface ResultScreenshotCountProps {
+  count: number
+}
+
+export const ResultScreenshotCount = ({
+  count,
+}: ResultScreenshotCountProps) => {
+  const normalizedCount = Number.isFinite(count) ? Math.floor(count) : 0
+
+  if (normalizedCount <= 0) return null
+
+  const label = `${normalizedCount} screenshot${normalizedCount === 1 ? '' : 's'} attached`
+
+  return (
+    <span
+      role="img"
+      aria-label={label}
+      title={label}
+      className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[11px] font-medium text-slate-600"
+    >
+      <ImageIcon size={13} aria-hidden="true" />
+      <span aria-hidden="true">
+        {normalizedCount} screenshot{normalizedCount === 1 ? '' : 's'}
+      </span>
+    </span>
+  )
+}
+
 const ATTACHMENT_KEY_IN_PATH =
   /test-run-attachments\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-[a-zA-Z0-9._-]+/
 

@@ -22,6 +22,7 @@ import {
 } from '../TestList/TestListRowColumns'
 import {TestListingColumns} from '../TestList/UploadTest/constants'
 import {AddResultDialog} from './AddResultDialog'
+import {ResultScreenshotCount} from './ResultAttachments'
 
 export const priorityMapping: {[key: string]: ReactNode} = {
   Critical: <DoubleArrowUpIcon stroke={'#f01000'} height={18} width={18} />,
@@ -132,6 +133,7 @@ export const RunTestListColumnConfig: ColumnDef<Tests>[] = [
       const params = useParams()
       const runId = +(params['runId'] ?? 0)
       const comment = row.original.comment
+      const hasScreenshots = row.original.screenshotCount > 0
       return (
         <div className="flex min-w-[150px] flex-col items-center gap-1.5 py-1">
           {row.original.runStatus === 'Active' ? (
@@ -149,12 +151,20 @@ export const RunTestListColumnConfig: ColumnDef<Tests>[] = [
           )}
           {comment ? (
             <div className="w-full max-w-[240px] rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-left">
-              <span className="block text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                Result note
-              </span>
+              <div className="flex items-start justify-between gap-2">
+                <span className="block text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                  Result note
+                </span>
+                <ResultScreenshotCount count={row.original.screenshotCount} />
+              </div>
               <p className="break-words whitespace-pre-wrap text-xs leading-relaxed text-slate-700">
                 {comment}
               </p>
+            </div>
+          ) : hasScreenshots ? (
+            <div className="flex w-full max-w-[240px] items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-left">
+              <span className="min-w-0 text-[11px] text-slate-400">No result note</span>
+              <ResultScreenshotCount count={row.original.screenshotCount} />
             </div>
           ) : (
             <span className="text-[11px] text-slate-400">No result note</span>

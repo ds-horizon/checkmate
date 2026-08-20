@@ -1,0 +1,4696 @@
+{
+  "version": "5",
+  "dialect": "mysql",
+  "id": "e1850412-ea4c-45b2-88f9-153e766625c9",
+  "prevId": "0840409e-7bf8-4cc9-96c2-a46c7df1c50b",
+  "tables": {
+    "labelTestMap": {
+      "name": "labelTestMap",
+      "columns": {
+        "labelId": {
+          "name": "labelId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "testId": {
+          "name": "testId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdOn": {
+          "name": "createdOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updatedOn": {
+          "name": "updatedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updatedBy": {
+          "name": "updatedBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "labelTestMapLabelIdIndex": {
+          "name": "labelTestMapLabelIdIndex",
+          "columns": [
+            "labelId"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "labelTestMap_labelId_labels_labelId_fk": {
+          "name": "labelTestMap_labelId_labels_labelId_fk",
+          "tableFrom": "labelTestMap",
+          "tableTo": "labels",
+          "columnsFrom": [
+            "labelId"
+          ],
+          "columnsTo": [
+            "labelId"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "labelTestMap_testId_tests_testId_fk": {
+          "name": "labelTestMap_testId_tests_testId_fk",
+          "tableFrom": "labelTestMap",
+          "tableTo": "tests",
+          "columnsFrom": [
+            "testId"
+          ],
+          "columnsTo": [
+            "testId"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "labelTestMap_createdBy_users_userId_fk": {
+          "name": "labelTestMap_createdBy_users_userId_fk",
+          "tableFrom": "labelTestMap",
+          "tableTo": "users",
+          "columnsFrom": [
+            "createdBy"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "labelTestMap_projectId_projects_projectId_fk": {
+          "name": "labelTestMap_projectId_projects_projectId_fk",
+          "tableFrom": "labelTestMap",
+          "tableTo": "projects",
+          "columnsFrom": [
+            "projectId"
+          ],
+          "columnsTo": [
+            "projectId"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "labelTestMap_updatedBy_users_userId_fk": {
+          "name": "labelTestMap_updatedBy_users_userId_fk",
+          "tableFrom": "labelTestMap",
+          "tableTo": "users",
+          "columnsFrom": [
+            "updatedBy"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "labelToTest": {
+          "name": "labelToTest",
+          "columns": [
+            "labelId",
+            "testId"
+          ]
+        }
+      }
+    },
+    "labels": {
+      "name": "labels",
+      "columns": {
+        "labelId": {
+          "name": "labelId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "labelName": {
+          "name": "labelName",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "labelType": {
+          "name": "labelType",
+          "type": "enum('System','Custom')",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdOn": {
+          "name": "createdOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "editHistory": {
+          "name": "editHistory",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": "('[]')"
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updatedOn": {
+          "name": "updatedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updatedBy": {
+          "name": "updatedBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "labels_createdBy_users_userId_fk": {
+          "name": "labels_createdBy_users_userId_fk",
+          "tableFrom": "labels",
+          "tableTo": "users",
+          "columnsFrom": [
+            "createdBy"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "labels_projectId_projects_projectId_fk": {
+          "name": "labels_projectId_projects_projectId_fk",
+          "tableFrom": "labels",
+          "tableTo": "projects",
+          "columnsFrom": [
+            "projectId"
+          ],
+          "columnsTo": [
+            "projectId"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "labels_updatedBy_users_userId_fk": {
+          "name": "labels_updatedBy_users_userId_fk",
+          "tableFrom": "labels",
+          "tableTo": "users",
+          "columnsFrom": [
+            "updatedBy"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "labels_labelId": {
+          "name": "labels_labelId",
+          "columns": [
+            "labelId"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "labelProjectunique": {
+          "name": "labelProjectunique",
+          "columns": [
+            "labelName",
+            "projectId"
+          ]
+        }
+      }
+    },
+    "organisations": {
+      "name": "organisations",
+      "columns": {
+        "orgId": {
+          "name": "orgId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "orgName": {
+          "name": "orgName",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdOn": {
+          "name": "createdOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "organisations_createdBy_users_userId_fk": {
+          "name": "organisations_createdBy_users_userId_fk",
+          "tableFrom": "organisations",
+          "tableTo": "users",
+          "columnsFrom": [
+            "createdBy"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "organisations_orgId": {
+          "name": "organisations_orgId",
+          "columns": [
+            "orgId"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "organisations_orgName_unique": {
+          "name": "organisations_orgName_unique",
+          "columns": [
+            "orgName"
+          ]
+        }
+      }
+    },
+    "projects": {
+      "name": "projects",
+      "columns": {
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "projectName": {
+          "name": "projectName",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "projectDescription": {
+          "name": "projectDescription",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdOn": {
+          "name": "createdOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "orgId": {
+          "name": "orgId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "testsCount": {
+          "name": "testsCount",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": 0
+        },
+        "runsCount": {
+          "name": "runsCount",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": 0
+        },
+        "status": {
+          "name": "status",
+          "type": "enum('Active','Archived','Deleted')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'Active'"
+        },
+        "updatedOn": {
+          "name": "updatedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updatedBy": {
+          "name": "updatedBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "projectsNameIndex": {
+          "name": "projectsNameIndex",
+          "columns": [
+            "projectName"
+          ],
+          "isUnique": false
+        },
+        "projectsProjectIdIndex": {
+          "name": "projectsProjectIdIndex",
+          "columns": [
+            "projectId"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "projects_createdBy_users_userId_fk": {
+          "name": "projects_createdBy_users_userId_fk",
+          "tableFrom": "projects",
+          "tableTo": "users",
+          "columnsFrom": [
+            "createdBy"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "projects_orgId_organisations_orgId_fk": {
+          "name": "projects_orgId_organisations_orgId_fk",
+          "tableFrom": "projects",
+          "tableTo": "organisations",
+          "columnsFrom": [
+            "orgId"
+          ],
+          "columnsTo": [
+            "orgId"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "projects_updatedBy_users_userId_fk": {
+          "name": "projects_updatedBy_users_userId_fk",
+          "tableFrom": "projects",
+          "tableTo": "users",
+          "columnsFrom": [
+            "updatedBy"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "projects_projectId": {
+          "name": "projects_projectId",
+          "columns": [
+            "projectId"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "projectOrgUniqueIndex": {
+          "name": "projectOrgUniqueIndex",
+          "columns": [
+            "projectName",
+            "orgId"
+          ]
+        }
+      }
+    },
+    "defectCycles": {
+      "name": "defectCycles",
+      "columns": {
+        "defectCycleId": {
+          "name": "defectCycleId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "testRunMapId": {
+          "name": "testRunMapId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "cycleNumber": {
+          "name": "cycleNumber",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "activeMarker": {
+          "name": "activeMarker",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "orgId": {
+          "name": "orgId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "runId": {
+          "name": "runId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "testId": {
+          "name": "testId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "state": {
+          "name": "state",
+          "type": "enum('intake_pending','intake_open','work_item_open','ready_for_retest','validated','resolved_before_sync','intake_rejected','canceled','superseded','orphaned','manual_attention')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "openingRevisionId": {
+          "name": "openingRevisionId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "currentEvidenceRevisionId": {
+          "name": "currentEvidenceRevisionId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "readinessGeneration": {
+          "name": "readinessGeneration",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "provider": {
+          "name": "provider",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "providerWorkspaceId": {
+          "name": "providerWorkspaceId",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "providerProjectId": {
+          "name": "providerProjectId",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "providerWorkItemId": {
+          "name": "providerWorkItemId",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "providerSequenceId": {
+          "name": "providerSequenceId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "providerUrl": {
+          "name": "providerUrl",
+          "type": "varchar(500)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "providerStateId": {
+          "name": "providerStateId",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "providerIntakeId": {
+          "name": "providerIntakeId",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createCorrelationKey": {
+          "name": "createCorrelationKey",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "lastProviderObservedOn": {
+          "name": "lastProviderObservedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdOn": {
+          "name": "createdOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updatedOn": {
+          "name": "updatedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "closedOn": {
+          "name": "closedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "defectCycleStateIndex": {
+          "name": "defectCycleStateIndex",
+          "columns": [
+            "state",
+            "updatedOn"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "defectCycleMapFk": {
+          "name": "defectCycleMapFk",
+          "tableFrom": "defectCycles",
+          "tableTo": "testRunMap",
+          "columnsFrom": [
+            "testRunMapId"
+          ],
+          "columnsTo": [
+            "testRunMapId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "defectCycleOrgFk": {
+          "name": "defectCycleOrgFk",
+          "tableFrom": "defectCycles",
+          "tableTo": "organisations",
+          "columnsFrom": [
+            "orgId"
+          ],
+          "columnsTo": [
+            "orgId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "defectCycleProjectFk": {
+          "name": "defectCycleProjectFk",
+          "tableFrom": "defectCycles",
+          "tableTo": "projects",
+          "columnsFrom": [
+            "projectId"
+          ],
+          "columnsTo": [
+            "projectId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "defectCycleRunFk": {
+          "name": "defectCycleRunFk",
+          "tableFrom": "defectCycles",
+          "tableTo": "runs",
+          "columnsFrom": [
+            "runId"
+          ],
+          "columnsTo": [
+            "runId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "defectCycleTestFk": {
+          "name": "defectCycleTestFk",
+          "tableFrom": "defectCycles",
+          "tableTo": "tests",
+          "columnsFrom": [
+            "testId"
+          ],
+          "columnsTo": [
+            "testId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "defectCycleOpeningRevisionFk": {
+          "name": "defectCycleOpeningRevisionFk",
+          "tableFrom": "defectCycles",
+          "tableTo": "resultRevisions",
+          "columnsFrom": [
+            "openingRevisionId"
+          ],
+          "columnsTo": [
+            "resultRevisionId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "defectCycleEvidenceRevisionFk": {
+          "name": "defectCycleEvidenceRevisionFk",
+          "tableFrom": "defectCycles",
+          "tableTo": "resultRevisions",
+          "columnsFrom": [
+            "currentEvidenceRevisionId"
+          ],
+          "columnsTo": [
+            "resultRevisionId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "defectCycles_defectCycleId": {
+          "name": "defectCycles_defectCycleId",
+          "columns": [
+            "defectCycleId"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "defectCycleNumberUnique": {
+          "name": "defectCycleNumberUnique",
+          "columns": [
+            "testRunMapId",
+            "cycleNumber"
+          ]
+        },
+        "defectCycleActiveUnique": {
+          "name": "defectCycleActiveUnique",
+          "columns": [
+            "testRunMapId",
+            "activeMarker"
+          ]
+        },
+        "defectCycleProviderUnique": {
+          "name": "defectCycleProviderUnique",
+          "columns": [
+            "provider",
+            "providerWorkspaceId",
+            "providerProjectId",
+            "providerWorkItemId"
+          ]
+        },
+        "defectCycleIntakeUnique": {
+          "name": "defectCycleIntakeUnique",
+          "columns": [
+            "provider",
+            "providerWorkspaceId",
+            "providerProjectId",
+            "providerIntakeId"
+          ]
+        },
+        "defectCycleCorrelationUnique": {
+          "name": "defectCycleCorrelationUnique",
+          "columns": [
+            "createCorrelationKey"
+          ]
+        }
+      }
+    },
+    "integrationInbox": {
+      "name": "integrationInbox",
+      "columns": {
+        "integrationInboxId": {
+          "name": "integrationInboxId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "provider": {
+          "name": "provider",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "providerDeliveryId": {
+          "name": "providerDeliveryId",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "eventType": {
+          "name": "eventType",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "eventFingerprint": {
+          "name": "eventFingerprint",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "payload": {
+          "name": "payload",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "signatureState": {
+          "name": "signatureState",
+          "type": "enum('verified','rejected','not_applicable')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "deliveryState": {
+          "name": "deliveryState",
+          "type": "enum('pending','leased','retry_due','applied','no_op','rejected','manual_attention')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'pending'"
+        },
+        "availableOn": {
+          "name": "availableOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "leaseToken": {
+          "name": "leaseToken",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "leaseExpiresOn": {
+          "name": "leaseExpiresOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "attemptCount": {
+          "name": "attemptCount",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "lastError": {
+          "name": "lastError",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "receivedOn": {
+          "name": "receivedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "appliedOn": {
+          "name": "appliedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updatedOn": {
+          "name": "updatedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "integrationInboxDeliveryIndex": {
+          "name": "integrationInboxDeliveryIndex",
+          "columns": [
+            "deliveryState",
+            "availableOn",
+            "leaseExpiresOn"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "integrationInbox_integrationInboxId": {
+          "name": "integrationInbox_integrationInboxId",
+          "columns": [
+            "integrationInboxId"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "integrationInboxDeliveryUnique": {
+          "name": "integrationInboxDeliveryUnique",
+          "columns": [
+            "provider",
+            "providerDeliveryId"
+          ]
+        }
+      }
+    },
+    "integrationPollCursors": {
+      "name": "integrationPollCursors",
+      "columns": {
+        "integrationPollCursorId": {
+          "name": "integrationPollCursorId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "provider": {
+          "name": "provider",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "destinationKey": {
+          "name": "destinationKey",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "cursorValue": {
+          "name": "cursorValue",
+          "type": "varchar(500)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "leaseToken": {
+          "name": "leaseToken",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "leaseExpiresOn": {
+          "name": "leaseExpiresOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "lastPolledOn": {
+          "name": "lastPolledOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "lastError": {
+          "name": "lastError",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updatedOn": {
+          "name": "updatedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "integrationPollCursorLeaseIndex": {
+          "name": "integrationPollCursorLeaseIndex",
+          "columns": [
+            "leaseExpiresOn"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "integrationPollCursors_integrationPollCursorId": {
+          "name": "integrationPollCursors_integrationPollCursorId",
+          "columns": [
+            "integrationPollCursorId"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "integrationPollCursorUnique": {
+          "name": "integrationPollCursorUnique",
+          "columns": [
+            "provider",
+            "destinationKey"
+          ]
+        }
+      }
+    },
+    "integrationReconciliations": {
+      "name": "integrationReconciliations",
+      "columns": {
+        "integrationReconciliationId": {
+          "name": "integrationReconciliationId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "findingKey": {
+          "name": "findingKey",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "findingType": {
+          "name": "findingType",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "aggregateType": {
+          "name": "aggregateType",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "aggregateId": {
+          "name": "aggregateId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "severity": {
+          "name": "severity",
+          "type": "enum('info','warning','critical')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "state": {
+          "name": "state",
+          "type": "enum('open','manual_attention','resolved')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'open'"
+        },
+        "expectedSnapshot": {
+          "name": "expectedSnapshot",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actualSnapshot": {
+          "name": "actualSnapshot",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "assignedUserId": {
+          "name": "assignedUserId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "firstDetectedOn": {
+          "name": "firstDetectedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "lastDetectedOn": {
+          "name": "lastDetectedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "resolvedOn": {
+          "name": "resolvedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "resolutionNote": {
+          "name": "resolutionNote",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "integrationReconciliationStateIndex": {
+          "name": "integrationReconciliationStateIndex",
+          "columns": [
+            "state",
+            "severity",
+            "lastDetectedOn"
+          ],
+          "isUnique": false
+        },
+        "integrationReconciliationAggregateIndex": {
+          "name": "integrationReconciliationAggregateIndex",
+          "columns": [
+            "aggregateType",
+            "aggregateId",
+            "state"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "integrationReconciliationAssigneeFk": {
+          "name": "integrationReconciliationAssigneeFk",
+          "tableFrom": "integrationReconciliations",
+          "tableTo": "users",
+          "columnsFrom": [
+            "assignedUserId"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "integrationReconciliations_integrationReconciliationId": {
+          "name": "integrationReconciliations_integrationReconciliationId",
+          "columns": [
+            "integrationReconciliationId"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "integrationReconciliations_findingKey_unique": {
+          "name": "integrationReconciliations_findingKey_unique",
+          "columns": [
+            "findingKey"
+          ]
+        }
+      }
+    },
+    "planeEvidenceDeliveries": {
+      "name": "planeEvidenceDeliveries",
+      "columns": {
+        "planeEvidenceDeliveryId": {
+          "name": "planeEvidenceDeliveryId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "defectCycleId": {
+          "name": "defectCycleId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "resultRevisionId": {
+          "name": "resultRevisionId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "resultAttachmentObjectId": {
+          "name": "resultAttachmentObjectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "sourceKind": {
+          "name": "sourceKind",
+          "type": "enum('note','attachment')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sourceIdentity": {
+          "name": "sourceIdentity",
+          "type": "varchar(160)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sourceText": {
+          "name": "sourceText",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "sourceObjectKey": {
+          "name": "sourceObjectKey",
+          "type": "varchar(500)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "sourceSha256": {
+          "name": "sourceSha256",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sourceContentType": {
+          "name": "sourceContentType",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "sourceByteSize": {
+          "name": "sourceByteSize",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "providerResourceName": {
+          "name": "providerResourceName",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "provider": {
+          "name": "provider",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "providerWorkspaceId": {
+          "name": "providerWorkspaceId",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "providerProjectId": {
+          "name": "providerProjectId",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "providerWorkItemId": {
+          "name": "providerWorkItemId",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "providerCommentId": {
+          "name": "providerCommentId",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "providerAssetId": {
+          "name": "providerAssetId",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "providerAttachmentId": {
+          "name": "providerAttachmentId",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "deliveryState": {
+          "name": "deliveryState",
+          "type": "enum('pending','reserved','retry_due','delivered','manual_attention')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'pending'"
+        },
+        "leaseToken": {
+          "name": "leaseToken",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "leaseExpiresOn": {
+          "name": "leaseExpiresOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "attemptCount": {
+          "name": "attemptCount",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "lastError": {
+          "name": "lastError",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "deliveredOn": {
+          "name": "deliveredOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdOn": {
+          "name": "createdOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updatedOn": {
+          "name": "updatedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "planeEvidenceDeliveryIndex": {
+          "name": "planeEvidenceDeliveryIndex",
+          "columns": [
+            "deliveryState",
+            "updatedOn"
+          ],
+          "isUnique": false
+        },
+        "planeEvidenceCycleIndex": {
+          "name": "planeEvidenceCycleIndex",
+          "columns": [
+            "defectCycleId",
+            "resultRevisionId"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "planeEvidenceCycleFk": {
+          "name": "planeEvidenceCycleFk",
+          "tableFrom": "planeEvidenceDeliveries",
+          "tableTo": "defectCycles",
+          "columnsFrom": [
+            "defectCycleId"
+          ],
+          "columnsTo": [
+            "defectCycleId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "planeEvidenceRevisionFk": {
+          "name": "planeEvidenceRevisionFk",
+          "tableFrom": "planeEvidenceDeliveries",
+          "tableTo": "resultRevisions",
+          "columnsFrom": [
+            "resultRevisionId"
+          ],
+          "columnsTo": [
+            "resultRevisionId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "planeEvidenceAttachmentObjectFk": {
+          "name": "planeEvidenceAttachmentObjectFk",
+          "tableFrom": "planeEvidenceDeliveries",
+          "tableTo": "resultAttachmentObjects",
+          "columnsFrom": [
+            "resultAttachmentObjectId"
+          ],
+          "columnsTo": [
+            "resultAttachmentObjectId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "planeEvidenceDeliveries_planeEvidenceDeliveryId": {
+          "name": "planeEvidenceDeliveries_planeEvidenceDeliveryId",
+          "columns": [
+            "planeEvidenceDeliveryId"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "planeEvidenceSourceUnique": {
+          "name": "planeEvidenceSourceUnique",
+          "columns": [
+            "defectCycleId",
+            "sourceIdentity"
+          ]
+        },
+        "planeEvidenceProviderCommentUnique": {
+          "name": "planeEvidenceProviderCommentUnique",
+          "columns": [
+            "provider",
+            "providerWorkspaceId",
+            "providerProjectId",
+            "providerCommentId"
+          ]
+        },
+        "planeEvidenceProviderAssetUnique": {
+          "name": "planeEvidenceProviderAssetUnique",
+          "columns": [
+            "provider",
+            "providerWorkspaceId",
+            "providerProjectId",
+            "providerAssetId"
+          ]
+        }
+      }
+    },
+    "resultAttachmentObjects": {
+      "name": "resultAttachmentObjects",
+      "columns": {
+        "resultAttachmentObjectId": {
+          "name": "resultAttachmentObjectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "objectKey": {
+          "name": "objectKey",
+          "type": "varchar(500)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "testRunMapId": {
+          "name": "testRunMapId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "orgId": {
+          "name": "orgId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "runId": {
+          "name": "runId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "testId": {
+          "name": "testId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "uploaderUserId": {
+          "name": "uploaderUserId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "contentType": {
+          "name": "contentType",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "byteSize": {
+          "name": "byteSize",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sha256": {
+          "name": "sha256",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "lifecycleState": {
+          "name": "lifecycleState",
+          "type": "enum('pending_upload','uploaded','committed','delete_pending','deleted','failed')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'pending_upload'"
+        },
+        "retentionPolicy": {
+          "name": "retentionPolicy",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'source_owned'"
+        },
+        "lastError": {
+          "name": "lastError",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdOn": {
+          "name": "createdOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "uploadedOn": {
+          "name": "uploadedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "deletedOn": {
+          "name": "deletedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updatedOn": {
+          "name": "updatedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "resultAttachmentObjectScopeIndex": {
+          "name": "resultAttachmentObjectScopeIndex",
+          "columns": [
+            "testRunMapId",
+            "lifecycleState",
+            "createdOn"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "resultAttachmentObjectMapFk": {
+          "name": "resultAttachmentObjectMapFk",
+          "tableFrom": "resultAttachmentObjects",
+          "tableTo": "testRunMap",
+          "columnsFrom": [
+            "testRunMapId"
+          ],
+          "columnsTo": [
+            "testRunMapId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "resultAttachmentObjectOrgFk": {
+          "name": "resultAttachmentObjectOrgFk",
+          "tableFrom": "resultAttachmentObjects",
+          "tableTo": "organisations",
+          "columnsFrom": [
+            "orgId"
+          ],
+          "columnsTo": [
+            "orgId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "resultAttachmentObjectProjectFk": {
+          "name": "resultAttachmentObjectProjectFk",
+          "tableFrom": "resultAttachmentObjects",
+          "tableTo": "projects",
+          "columnsFrom": [
+            "projectId"
+          ],
+          "columnsTo": [
+            "projectId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "resultAttachmentObjectRunFk": {
+          "name": "resultAttachmentObjectRunFk",
+          "tableFrom": "resultAttachmentObjects",
+          "tableTo": "runs",
+          "columnsFrom": [
+            "runId"
+          ],
+          "columnsTo": [
+            "runId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "resultAttachmentObjectTestFk": {
+          "name": "resultAttachmentObjectTestFk",
+          "tableFrom": "resultAttachmentObjects",
+          "tableTo": "tests",
+          "columnsFrom": [
+            "testId"
+          ],
+          "columnsTo": [
+            "testId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "resultAttachmentObjectUploaderFk": {
+          "name": "resultAttachmentObjectUploaderFk",
+          "tableFrom": "resultAttachmentObjects",
+          "tableTo": "users",
+          "columnsFrom": [
+            "uploaderUserId"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "resultAttachmentObjects_resultAttachmentObjectId": {
+          "name": "resultAttachmentObjects_resultAttachmentObjectId",
+          "columns": [
+            "resultAttachmentObjectId"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "resultAttachmentObjectKeyUnique": {
+          "name": "resultAttachmentObjectKeyUnique",
+          "columns": [
+            "objectKey"
+          ]
+        }
+      }
+    },
+    "resultCommands": {
+      "name": "resultCommands",
+      "columns": {
+        "resultCommandReceiptId": {
+          "name": "resultCommandReceiptId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "resultCommandId": {
+          "name": "resultCommandId",
+          "type": "varchar(36)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "testRunMapId": {
+          "name": "testRunMapId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "requestFingerprint": {
+          "name": "requestFingerprint",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "resultRevisionId": {
+          "name": "resultRevisionId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "orgId": {
+          "name": "orgId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "runId": {
+          "name": "runId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "testId": {
+          "name": "testId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actorUserId": {
+          "name": "actorUserId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdOn": {
+          "name": "createdOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "resultCommandTenantIndex": {
+          "name": "resultCommandTenantIndex",
+          "columns": [
+            "orgId",
+            "projectId",
+            "createdOn"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "resultCommandMapFk": {
+          "name": "resultCommandMapFk",
+          "tableFrom": "resultCommands",
+          "tableTo": "testRunMap",
+          "columnsFrom": [
+            "testRunMapId"
+          ],
+          "columnsTo": [
+            "testRunMapId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "resultCommandRevisionFk": {
+          "name": "resultCommandRevisionFk",
+          "tableFrom": "resultCommands",
+          "tableTo": "resultRevisions",
+          "columnsFrom": [
+            "resultRevisionId"
+          ],
+          "columnsTo": [
+            "resultRevisionId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "resultCommandOrgFk": {
+          "name": "resultCommandOrgFk",
+          "tableFrom": "resultCommands",
+          "tableTo": "organisations",
+          "columnsFrom": [
+            "orgId"
+          ],
+          "columnsTo": [
+            "orgId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "resultCommandProjectFk": {
+          "name": "resultCommandProjectFk",
+          "tableFrom": "resultCommands",
+          "tableTo": "projects",
+          "columnsFrom": [
+            "projectId"
+          ],
+          "columnsTo": [
+            "projectId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "resultCommandRunFk": {
+          "name": "resultCommandRunFk",
+          "tableFrom": "resultCommands",
+          "tableTo": "runs",
+          "columnsFrom": [
+            "runId"
+          ],
+          "columnsTo": [
+            "runId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "resultCommandTestFk": {
+          "name": "resultCommandTestFk",
+          "tableFrom": "resultCommands",
+          "tableTo": "tests",
+          "columnsFrom": [
+            "testId"
+          ],
+          "columnsTo": [
+            "testId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "resultCommandActorFk": {
+          "name": "resultCommandActorFk",
+          "tableFrom": "resultCommands",
+          "tableTo": "users",
+          "columnsFrom": [
+            "actorUserId"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "resultCommands_resultCommandReceiptId": {
+          "name": "resultCommands_resultCommandReceiptId",
+          "columns": [
+            "resultCommandReceiptId"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "resultCommandAggregateUnique": {
+          "name": "resultCommandAggregateUnique",
+          "columns": [
+            "testRunMapId",
+            "resultCommandId"
+          ]
+        },
+        "resultCommandRevisionUnique": {
+          "name": "resultCommandRevisionUnique",
+          "columns": [
+            "resultRevisionId"
+          ]
+        }
+      }
+    },
+    "resultNotifications": {
+      "name": "resultNotifications",
+      "columns": {
+        "resultNotificationId": {
+          "name": "resultNotificationId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "notificationKey": {
+          "name": "notificationKey",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "defectCycleId": {
+          "name": "defectCycleId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "resultRevisionId": {
+          "name": "resultRevisionId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "channel": {
+          "name": "channel",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "recipientKey": {
+          "name": "recipientKey",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "payload": {
+          "name": "payload",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "deliveryState": {
+          "name": "deliveryState",
+          "type": "enum('pending','leased','delivered','retry_due','manual_attention')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'pending'"
+        },
+        "leaseToken": {
+          "name": "leaseToken",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "leaseExpiresOn": {
+          "name": "leaseExpiresOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "availableOn": {
+          "name": "availableOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "attemptCount": {
+          "name": "attemptCount",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "lastError": {
+          "name": "lastError",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "providerMessageId": {
+          "name": "providerMessageId",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "deliveredOn": {
+          "name": "deliveredOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdOn": {
+          "name": "createdOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updatedOn": {
+          "name": "updatedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "resultNotificationDeliveryIndex": {
+          "name": "resultNotificationDeliveryIndex",
+          "columns": [
+            "deliveryState",
+            "availableOn",
+            "leaseExpiresOn"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "resultNotificationCycleFk": {
+          "name": "resultNotificationCycleFk",
+          "tableFrom": "resultNotifications",
+          "tableTo": "defectCycles",
+          "columnsFrom": [
+            "defectCycleId"
+          ],
+          "columnsTo": [
+            "defectCycleId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "resultNotificationRevisionFk": {
+          "name": "resultNotificationRevisionFk",
+          "tableFrom": "resultNotifications",
+          "tableTo": "resultRevisions",
+          "columnsFrom": [
+            "resultRevisionId"
+          ],
+          "columnsTo": [
+            "resultRevisionId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "resultNotifications_resultNotificationId": {
+          "name": "resultNotifications_resultNotificationId",
+          "columns": [
+            "resultNotificationId"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "resultNotifications_notificationKey_unique": {
+          "name": "resultNotifications_notificationKey_unique",
+          "columns": [
+            "notificationKey"
+          ]
+        }
+      }
+    },
+    "resultOutbox": {
+      "name": "resultOutbox",
+      "columns": {
+        "resultOutboxId": {
+          "name": "resultOutboxId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "eventKey": {
+          "name": "eventKey",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "eventType": {
+          "name": "eventType",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "aggregateType": {
+          "name": "aggregateType",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "aggregateId": {
+          "name": "aggregateId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "resultRevisionId": {
+          "name": "resultRevisionId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "payload": {
+          "name": "payload",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "deliveryState": {
+          "name": "deliveryState",
+          "type": "enum('pending','leased','delivered','retry_due','failed','manual_attention')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'pending'"
+        },
+        "availableOn": {
+          "name": "availableOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "leaseToken": {
+          "name": "leaseToken",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "leaseExpiresOn": {
+          "name": "leaseExpiresOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "attemptCount": {
+          "name": "attemptCount",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "lastError": {
+          "name": "lastError",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "deliveredOn": {
+          "name": "deliveredOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdOn": {
+          "name": "createdOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updatedOn": {
+          "name": "updatedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "resultOutboxDeliveryIndex": {
+          "name": "resultOutboxDeliveryIndex",
+          "columns": [
+            "deliveryState",
+            "availableOn",
+            "leaseExpiresOn"
+          ],
+          "isUnique": false
+        },
+        "resultOutboxAggregateIndex": {
+          "name": "resultOutboxAggregateIndex",
+          "columns": [
+            "aggregateType",
+            "aggregateId",
+            "createdOn"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "resultOutboxRevisionFk": {
+          "name": "resultOutboxRevisionFk",
+          "tableFrom": "resultOutbox",
+          "tableTo": "resultRevisions",
+          "columnsFrom": [
+            "resultRevisionId"
+          ],
+          "columnsTo": [
+            "resultRevisionId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "resultOutbox_resultOutboxId": {
+          "name": "resultOutbox_resultOutboxId",
+          "columns": [
+            "resultOutboxId"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "resultOutbox_eventKey_unique": {
+          "name": "resultOutbox_eventKey_unique",
+          "columns": [
+            "eventKey"
+          ]
+        }
+      }
+    },
+    "resultRevisionAttachments": {
+      "name": "resultRevisionAttachments",
+      "columns": {
+        "resultRevisionAttachmentId": {
+          "name": "resultRevisionAttachmentId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "resultRevisionId": {
+          "name": "resultRevisionId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "resultAttachmentObjectId": {
+          "name": "resultAttachmentObjectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "objectKey": {
+          "name": "objectKey",
+          "type": "varchar(500)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "lifecycleState": {
+          "name": "lifecycleState",
+          "type": "enum('active','deleted')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'active'"
+        },
+        "retentionPolicy": {
+          "name": "retentionPolicy",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'source_owned'"
+        },
+        "createdOn": {
+          "name": "createdOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "deletedOn": {
+          "name": "deletedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "resultRevisionAttachmentObjectIndex": {
+          "name": "resultRevisionAttachmentObjectIndex",
+          "columns": [
+            "objectKey",
+            "lifecycleState"
+          ],
+          "isUnique": false
+        },
+        "resultRevisionAttachmentObjectIdIndex": {
+          "name": "resultRevisionAttachmentObjectIdIndex",
+          "columns": [
+            "resultAttachmentObjectId"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "resultRevisionAttachmentRevisionFk": {
+          "name": "resultRevisionAttachmentRevisionFk",
+          "tableFrom": "resultRevisionAttachments",
+          "tableTo": "resultRevisions",
+          "columnsFrom": [
+            "resultRevisionId"
+          ],
+          "columnsTo": [
+            "resultRevisionId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "resultRevisionAttachmentObjectFk": {
+          "name": "resultRevisionAttachmentObjectFk",
+          "tableFrom": "resultRevisionAttachments",
+          "tableTo": "resultAttachmentObjects",
+          "columnsFrom": [
+            "resultAttachmentObjectId"
+          ],
+          "columnsTo": [
+            "resultAttachmentObjectId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "resultRevisionAttachments_resultRevisionAttachmentId": {
+          "name": "resultRevisionAttachments_resultRevisionAttachmentId",
+          "columns": [
+            "resultRevisionAttachmentId"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "resultRevisionAttachmentUnique": {
+          "name": "resultRevisionAttachmentUnique",
+          "columns": [
+            "resultRevisionId",
+            "objectKey"
+          ]
+        }
+      }
+    },
+    "resultRevisions": {
+      "name": "resultRevisions",
+      "columns": {
+        "resultRevisionId": {
+          "name": "resultRevisionId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "testRunMapId": {
+          "name": "testRunMapId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "revisionNumber": {
+          "name": "revisionNumber",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "resultCommandId": {
+          "name": "resultCommandId",
+          "type": "varchar(36)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "orgId": {
+          "name": "orgId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "runId": {
+          "name": "runId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "testId": {
+          "name": "testId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(25)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "comment": {
+          "name": "comment",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "actorUserId": {
+          "name": "actorUserId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actorType": {
+          "name": "actorType",
+          "type": "enum('human','system')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sourceSystem": {
+          "name": "sourceSystem",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sourceEventId": {
+          "name": "sourceEventId",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "defectCycleId": {
+          "name": "defectCycleId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdOn": {
+          "name": "createdOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "resultRevisionRunIndex": {
+          "name": "resultRevisionRunIndex",
+          "columns": [
+            "runId",
+            "testRunMapId"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "resultRevisionMapFk": {
+          "name": "resultRevisionMapFk",
+          "tableFrom": "resultRevisions",
+          "tableTo": "testRunMap",
+          "columnsFrom": [
+            "testRunMapId"
+          ],
+          "columnsTo": [
+            "testRunMapId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "resultRevisionOrgFk": {
+          "name": "resultRevisionOrgFk",
+          "tableFrom": "resultRevisions",
+          "tableTo": "organisations",
+          "columnsFrom": [
+            "orgId"
+          ],
+          "columnsTo": [
+            "orgId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "resultRevisionProjectFk": {
+          "name": "resultRevisionProjectFk",
+          "tableFrom": "resultRevisions",
+          "tableTo": "projects",
+          "columnsFrom": [
+            "projectId"
+          ],
+          "columnsTo": [
+            "projectId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "resultRevisionRunFk": {
+          "name": "resultRevisionRunFk",
+          "tableFrom": "resultRevisions",
+          "tableTo": "runs",
+          "columnsFrom": [
+            "runId"
+          ],
+          "columnsTo": [
+            "runId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "resultRevisionTestFk": {
+          "name": "resultRevisionTestFk",
+          "tableFrom": "resultRevisions",
+          "tableTo": "tests",
+          "columnsFrom": [
+            "testId"
+          ],
+          "columnsTo": [
+            "testId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "resultRevisionActorFk": {
+          "name": "resultRevisionActorFk",
+          "tableFrom": "resultRevisions",
+          "tableTo": "users",
+          "columnsFrom": [
+            "actorUserId"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "resultRevisions_resultRevisionId": {
+          "name": "resultRevisions_resultRevisionId",
+          "columns": [
+            "resultRevisionId"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "resultRevisionNumberUnique": {
+          "name": "resultRevisionNumberUnique",
+          "columns": [
+            "testRunMapId",
+            "revisionNumber"
+          ]
+        },
+        "resultRevisionCommandUnique": {
+          "name": "resultRevisionCommandUnique",
+          "columns": [
+            "testRunMapId",
+            "resultCommandId"
+          ]
+        }
+      }
+    },
+    "runs": {
+      "name": "runs",
+      "columns": {
+        "runId": {
+          "name": "runId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "enum('Active','Locked','Archived','Deleted')",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "runDescription": {
+          "name": "runDescription",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "refrence": {
+          "name": "refrence",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdOn": {
+          "name": "createdOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updatedOn": {
+          "name": "updatedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updatedBy": {
+          "name": "updatedBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "runName": {
+          "name": "runName",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "lockedBy": {
+          "name": "lockedBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "lockedOn": {
+          "name": "lockedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "runProjectIndex": {
+          "name": "runProjectIndex",
+          "columns": [
+            "projectId",
+            "status"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "runs_projectId_projects_projectId_fk": {
+          "name": "runs_projectId_projects_projectId_fk",
+          "tableFrom": "runs",
+          "tableTo": "projects",
+          "columnsFrom": [
+            "projectId"
+          ],
+          "columnsTo": [
+            "projectId"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "runs_createdBy_users_userId_fk": {
+          "name": "runs_createdBy_users_userId_fk",
+          "tableFrom": "runs",
+          "tableTo": "users",
+          "columnsFrom": [
+            "createdBy"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "runs_updatedBy_users_userId_fk": {
+          "name": "runs_updatedBy_users_userId_fk",
+          "tableFrom": "runs",
+          "tableTo": "users",
+          "columnsFrom": [
+            "updatedBy"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "runs_lockedBy_users_userId_fk": {
+          "name": "runs_lockedBy_users_userId_fk",
+          "tableFrom": "runs",
+          "tableTo": "users",
+          "columnsFrom": [
+            "lockedBy"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "runs_runId": {
+          "name": "runs_runId",
+          "columns": [
+            "runId"
+          ]
+        }
+      },
+      "uniqueConstraints": {}
+    },
+    "testRunMap": {
+      "name": "testRunMap",
+      "columns": {
+        "testRunMapId": {
+          "name": "testRunMapId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "runId": {
+          "name": "runId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "testId": {
+          "name": "testId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "isIncluded": {
+          "name": "isIncluded",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": true
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(25)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'Untested'"
+        },
+        "statusUpdates": {
+          "name": "statusUpdates",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updatedBy": {
+          "name": "updatedBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdOn": {
+          "name": "createdOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updatedOn": {
+          "name": "updatedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "comment": {
+          "name": "comment",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "currentResultRevisionId": {
+          "name": "currentResultRevisionId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "testRunMapRunIdIndex": {
+          "name": "testRunMapRunIdIndex",
+          "columns": [
+            "runId"
+          ],
+          "isUnique": false
+        },
+        "testRunMapStatusIndex": {
+          "name": "testRunMapStatusIndex",
+          "columns": [
+            "status"
+          ],
+          "isUnique": false
+        },
+        "testRunMapCurrentResultRevisionIndex": {
+          "name": "testRunMapCurrentResultRevisionIndex",
+          "columns": [
+            "currentResultRevisionId"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "testRunMap_runId_runs_runId_fk": {
+          "name": "testRunMap_runId_runs_runId_fk",
+          "tableFrom": "testRunMap",
+          "tableTo": "runs",
+          "columnsFrom": [
+            "runId"
+          ],
+          "columnsTo": [
+            "runId"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "testRunMap_testId_tests_testId_fk": {
+          "name": "testRunMap_testId_tests_testId_fk",
+          "tableFrom": "testRunMap",
+          "tableTo": "tests",
+          "columnsFrom": [
+            "testId"
+          ],
+          "columnsTo": [
+            "testId"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "testRunMap_projectId_projects_projectId_fk": {
+          "name": "testRunMap_projectId_projects_projectId_fk",
+          "tableFrom": "testRunMap",
+          "tableTo": "projects",
+          "columnsFrom": [
+            "projectId"
+          ],
+          "columnsTo": [
+            "projectId"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "testRunMap_updatedBy_users_userId_fk": {
+          "name": "testRunMap_updatedBy_users_userId_fk",
+          "tableFrom": "testRunMap",
+          "tableTo": "users",
+          "columnsFrom": [
+            "updatedBy"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "testRunMap_testRunMapId": {
+          "name": "testRunMap_testRunMapId",
+          "columns": [
+            "testRunMapId"
+          ]
+        }
+      },
+      "uniqueConstraints": {}
+    },
+    "testRunsStatusHistory": {
+      "name": "testRunsStatusHistory",
+      "columns": {
+        "testRunsStatusHistoryId": {
+          "name": "testRunsStatusHistoryId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "runId": {
+          "name": "runId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "testId": {
+          "name": "testId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(25)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updatedBy": {
+          "name": "updatedBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updatedOn": {
+          "name": "updatedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "createdOn": {
+          "name": "createdOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "comment": {
+          "name": "comment",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "attachments": {
+          "name": "attachments",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "totalTestCase": {
+          "name": "totalTestCase",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": 0
+        },
+        "passedTestCase": {
+          "name": "passedTestCase",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": 0
+        },
+        "failedTestCase": {
+          "name": "failedTestCase",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": 0
+        },
+        "untestedTestCase": {
+          "name": "untestedTestCase",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": 0
+        }
+      },
+      "indexes": {
+        "testRunsStatusHistoryRunIdIndex": {
+          "name": "testRunsStatusHistoryRunIdIndex",
+          "columns": [
+            "runId",
+            "testId"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "testRunsStatusHistory_runId_runs_runId_fk": {
+          "name": "testRunsStatusHistory_runId_runs_runId_fk",
+          "tableFrom": "testRunsStatusHistory",
+          "tableTo": "runs",
+          "columnsFrom": [
+            "runId"
+          ],
+          "columnsTo": [
+            "runId"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "testRunsStatusHistory_testId_tests_testId_fk": {
+          "name": "testRunsStatusHistory_testId_tests_testId_fk",
+          "tableFrom": "testRunsStatusHistory",
+          "tableTo": "tests",
+          "columnsFrom": [
+            "testId"
+          ],
+          "columnsTo": [
+            "testId"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "testRunsStatusHistory_updatedBy_users_userId_fk": {
+          "name": "testRunsStatusHistory_updatedBy_users_userId_fk",
+          "tableFrom": "testRunsStatusHistory",
+          "tableTo": "users",
+          "columnsFrom": [
+            "updatedBy"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "testRunsStatusHistory_testRunsStatusHistoryId": {
+          "name": "testRunsStatusHistory_testRunsStatusHistoryId",
+          "columns": [
+            "testRunsStatusHistoryId"
+          ]
+        }
+      },
+      "uniqueConstraints": {}
+    },
+    "squads": {
+      "name": "squads",
+      "columns": {
+        "squadId": {
+          "name": "squadId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "squadName": {
+          "name": "squadName",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdOn": {
+          "name": "createdOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "editInfo": {
+          "name": "editInfo",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": "('[]')"
+        },
+        "updatedOn": {
+          "name": "updatedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updatedBy": {
+          "name": "updatedBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "squadsSquadNameIndex": {
+          "name": "squadsSquadNameIndex",
+          "columns": [
+            "squadName"
+          ],
+          "isUnique": false
+        },
+        "squadsProjectIdIndex": {
+          "name": "squadsProjectIdIndex",
+          "columns": [
+            "projectId"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "squads_createdBy_users_userId_fk": {
+          "name": "squads_createdBy_users_userId_fk",
+          "tableFrom": "squads",
+          "tableTo": "users",
+          "columnsFrom": [
+            "createdBy"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "squads_projectId_projects_projectId_fk": {
+          "name": "squads_projectId_projects_projectId_fk",
+          "tableFrom": "squads",
+          "tableTo": "projects",
+          "columnsFrom": [
+            "projectId"
+          ],
+          "columnsTo": [
+            "projectId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "squads_updatedBy_users_userId_fk": {
+          "name": "squads_updatedBy_users_userId_fk",
+          "tableFrom": "squads",
+          "tableTo": "users",
+          "columnsFrom": [
+            "updatedBy"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "squads_squadId": {
+          "name": "squads_squadId",
+          "columns": [
+            "squadId"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "squadNameUnique": {
+          "name": "squadNameUnique",
+          "columns": [
+            "squadName",
+            "projectId"
+          ]
+        }
+      }
+    },
+    "automationStatus": {
+      "name": "automationStatus",
+      "columns": {
+        "automationStatusId": {
+          "name": "automationStatusId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "automationStatusName": {
+          "name": "automationStatusName",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdOn": {
+          "name": "createdOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "orgId": {
+          "name": "orgId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updatedOn": {
+          "name": "updatedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updatedBy": {
+          "name": "updatedBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "automationStatusNameIndex": {
+          "name": "automationStatusNameIndex",
+          "columns": [
+            "automationStatusName"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "automationStatus_createdBy_users_userId_fk": {
+          "name": "automationStatus_createdBy_users_userId_fk",
+          "tableFrom": "automationStatus",
+          "tableTo": "users",
+          "columnsFrom": [
+            "createdBy"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "automationStatus_orgId_organisations_orgId_fk": {
+          "name": "automationStatus_orgId_organisations_orgId_fk",
+          "tableFrom": "automationStatus",
+          "tableTo": "organisations",
+          "columnsFrom": [
+            "orgId"
+          ],
+          "columnsTo": [
+            "orgId"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "automationStatus_updatedBy_users_userId_fk": {
+          "name": "automationStatus_updatedBy_users_userId_fk",
+          "tableFrom": "automationStatus",
+          "tableTo": "users",
+          "columnsFrom": [
+            "updatedBy"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "automationStatus_projectId_projects_projectId_fk": {
+          "name": "automationStatus_projectId_projects_projectId_fk",
+          "tableFrom": "automationStatus",
+          "tableTo": "projects",
+          "columnsFrom": [
+            "projectId"
+          ],
+          "columnsTo": [
+            "projectId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "automationStatus_automationStatusId": {
+          "name": "automationStatus_automationStatusId",
+          "columns": [
+            "automationStatusId"
+          ]
+        }
+      },
+      "uniqueConstraints": {}
+    },
+    "platform": {
+      "name": "platform",
+      "columns": {
+        "platformId": {
+          "name": "platformId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "platformName": {
+          "name": "platformName",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdOn": {
+          "name": "createdOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updatedOn": {
+          "name": "updatedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updatedBy": {
+          "name": "updatedBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "orgId": {
+          "name": "orgId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "platformNameIndex": {
+          "name": "platformNameIndex",
+          "columns": [
+            "platformName"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "platform_createdBy_users_userId_fk": {
+          "name": "platform_createdBy_users_userId_fk",
+          "tableFrom": "platform",
+          "tableTo": "users",
+          "columnsFrom": [
+            "createdBy"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "platform_updatedBy_users_userId_fk": {
+          "name": "platform_updatedBy_users_userId_fk",
+          "tableFrom": "platform",
+          "tableTo": "users",
+          "columnsFrom": [
+            "updatedBy"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "platform_orgId_organisations_orgId_fk": {
+          "name": "platform_orgId_organisations_orgId_fk",
+          "tableFrom": "platform",
+          "tableTo": "organisations",
+          "columnsFrom": [
+            "orgId"
+          ],
+          "columnsTo": [
+            "orgId"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "platform_projectId_projects_projectId_fk": {
+          "name": "platform_projectId_projects_projectId_fk",
+          "tableFrom": "platform",
+          "tableTo": "projects",
+          "columnsFrom": [
+            "projectId"
+          ],
+          "columnsTo": [
+            "projectId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "platform_platformId": {
+          "name": "platform_platformId",
+          "columns": [
+            "platformId"
+          ]
+        }
+      },
+      "uniqueConstraints": {}
+    },
+    "priority": {
+      "name": "priority",
+      "columns": {
+        "priorityId": {
+          "name": "priorityId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "priorityName": {
+          "name": "priorityName",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdOn": {
+          "name": "createdOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updatedOn": {
+          "name": "updatedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updatedBy": {
+          "name": "updatedBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "orgId": {
+          "name": "orgId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "priorityNameIndex": {
+          "name": "priorityNameIndex",
+          "columns": [
+            "priorityName"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "priority_createdBy_users_userId_fk": {
+          "name": "priority_createdBy_users_userId_fk",
+          "tableFrom": "priority",
+          "tableTo": "users",
+          "columnsFrom": [
+            "createdBy"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "priority_updatedBy_users_userId_fk": {
+          "name": "priority_updatedBy_users_userId_fk",
+          "tableFrom": "priority",
+          "tableTo": "users",
+          "columnsFrom": [
+            "updatedBy"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "priority_orgId_organisations_orgId_fk": {
+          "name": "priority_orgId_organisations_orgId_fk",
+          "tableFrom": "priority",
+          "tableTo": "organisations",
+          "columnsFrom": [
+            "orgId"
+          ],
+          "columnsTo": [
+            "orgId"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "priority_priorityId": {
+          "name": "priority_priorityId",
+          "columns": [
+            "priorityId"
+          ]
+        }
+      },
+      "uniqueConstraints": {}
+    },
+    "sections": {
+      "name": "sections",
+      "columns": {
+        "sectionId": {
+          "name": "sectionId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "sectionName": {
+          "name": "sectionName",
+          "type": "varchar(250)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sectionDescription": {
+          "name": "sectionDescription",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "parentId": {
+          "name": "parentId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "editHistory": {
+          "name": "editHistory",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": "('[]')"
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdOn": {
+          "name": "createdOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updatedOn": {
+          "name": "updatedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updatedBy": {
+          "name": "updatedBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "sectionNameIndex": {
+          "name": "sectionNameIndex",
+          "columns": [
+            "sectionName"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "sections_parentId_sections_sectionId_fk": {
+          "name": "sections_parentId_sections_sectionId_fk",
+          "tableFrom": "sections",
+          "tableTo": "sections",
+          "columnsFrom": [
+            "parentId"
+          ],
+          "columnsTo": [
+            "sectionId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "sections_projectId_projects_projectId_fk": {
+          "name": "sections_projectId_projects_projectId_fk",
+          "tableFrom": "sections",
+          "tableTo": "projects",
+          "columnsFrom": [
+            "projectId"
+          ],
+          "columnsTo": [
+            "projectId"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "sections_createdBy_users_userId_fk": {
+          "name": "sections_createdBy_users_userId_fk",
+          "tableFrom": "sections",
+          "tableTo": "users",
+          "columnsFrom": [
+            "createdBy"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "sections_updatedBy_users_userId_fk": {
+          "name": "sections_updatedBy_users_userId_fk",
+          "tableFrom": "sections",
+          "tableTo": "users",
+          "columnsFrom": [
+            "updatedBy"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "sections_sectionId": {
+          "name": "sections_sectionId",
+          "columns": [
+            "sectionId"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "sectionHierarchyUnique": {
+          "name": "sectionHierarchyUnique",
+          "columns": [
+            "parentId",
+            "sectionName",
+            "projectId"
+          ]
+        }
+      }
+    },
+    "testCoveredBy": {
+      "name": "testCoveredBy",
+      "columns": {
+        "testCoveredById": {
+          "name": "testCoveredById",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "testCoveredByName": {
+          "name": "testCoveredByName",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdOn": {
+          "name": "createdOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updatedOn": {
+          "name": "updatedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updatedBy": {
+          "name": "updatedBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "orgId": {
+          "name": "orgId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "testCoveredByNameIndex": {
+          "name": "testCoveredByNameIndex",
+          "columns": [
+            "testCoveredByName"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "testCoveredBy_createdBy_users_userId_fk": {
+          "name": "testCoveredBy_createdBy_users_userId_fk",
+          "tableFrom": "testCoveredBy",
+          "tableTo": "users",
+          "columnsFrom": [
+            "createdBy"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "testCoveredBy_updatedBy_users_userId_fk": {
+          "name": "testCoveredBy_updatedBy_users_userId_fk",
+          "tableFrom": "testCoveredBy",
+          "tableTo": "users",
+          "columnsFrom": [
+            "updatedBy"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "testCoveredBy_orgId_organisations_orgId_fk": {
+          "name": "testCoveredBy_orgId_organisations_orgId_fk",
+          "tableFrom": "testCoveredBy",
+          "tableTo": "organisations",
+          "columnsFrom": [
+            "orgId"
+          ],
+          "columnsTo": [
+            "orgId"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "testCoveredBy_projectId_projects_projectId_fk": {
+          "name": "testCoveredBy_projectId_projects_projectId_fk",
+          "tableFrom": "testCoveredBy",
+          "tableTo": "projects",
+          "columnsFrom": [
+            "projectId"
+          ],
+          "columnsTo": [
+            "projectId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "testCoveredBy_testCoveredById": {
+          "name": "testCoveredBy_testCoveredById",
+          "columns": [
+            "testCoveredById"
+          ]
+        }
+      },
+      "uniqueConstraints": {}
+    },
+    "tests": {
+      "name": "tests",
+      "columns": {
+        "testId": {
+          "name": "testId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "sectionId": {
+          "name": "sectionId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "varchar(750)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "squadId": {
+          "name": "squadId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "priorityId": {
+          "name": "priorityId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "typeId": {
+          "name": "typeId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "automationStatusId": {
+          "name": "automationStatusId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "testCoveredById": {
+          "name": "testCoveredById",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "preConditions": {
+          "name": "preConditions",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "steps": {
+          "name": "steps",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "expectedResult": {
+          "name": "expectedResult",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "assignedTo": {
+          "name": "assignedTo",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updatedBy": {
+          "name": "updatedBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdOn": {
+          "name": "createdOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "testStatusHistory": {
+          "name": "testStatusHistory",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updatedOn": {
+          "name": "updatedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "editInfo": {
+          "name": "editInfo",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": "('[]')"
+        },
+        "platformId": {
+          "name": "platformId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdByName": {
+          "name": "createdByName",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "jiraTicket": {
+          "name": "jiraTicket",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "defects": {
+          "name": "defects",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "attachments": {
+          "name": "attachments",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "enum('Active','Archived','Deleted')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'Active'"
+        },
+        "reference": {
+          "name": "reference",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "additionalGroups": {
+          "name": "additionalGroups",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "automationId": {
+          "name": "automationId",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "custom1": {
+          "name": "custom1",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "custom2": {
+          "name": "custom2",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "custom3": {
+          "name": "custom3",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "custom4": {
+          "name": "custom4",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "projectSquadIndex": {
+          "name": "projectSquadIndex",
+          "columns": [
+            "projectId",
+            "squadId"
+          ],
+          "isUnique": false
+        },
+        "statusIndex": {
+          "name": "statusIndex",
+          "columns": [
+            "status"
+          ],
+          "isUnique": false
+        },
+        "titleIndex": {
+          "name": "titleIndex",
+          "columns": [
+            "title"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "tests_sectionId_sections_sectionId_fk": {
+          "name": "tests_sectionId_sections_sectionId_fk",
+          "tableFrom": "tests",
+          "tableTo": "sections",
+          "columnsFrom": [
+            "sectionId"
+          ],
+          "columnsTo": [
+            "sectionId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "tests_projectId_projects_projectId_fk": {
+          "name": "tests_projectId_projects_projectId_fk",
+          "tableFrom": "tests",
+          "tableTo": "projects",
+          "columnsFrom": [
+            "projectId"
+          ],
+          "columnsTo": [
+            "projectId"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "tests_squadId_squads_squadId_fk": {
+          "name": "tests_squadId_squads_squadId_fk",
+          "tableFrom": "tests",
+          "tableTo": "squads",
+          "columnsFrom": [
+            "squadId"
+          ],
+          "columnsTo": [
+            "squadId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "tests_priorityId_priority_priorityId_fk": {
+          "name": "tests_priorityId_priority_priorityId_fk",
+          "tableFrom": "tests",
+          "tableTo": "priority",
+          "columnsFrom": [
+            "priorityId"
+          ],
+          "columnsTo": [
+            "priorityId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "tests_typeId_type_typeId_fk": {
+          "name": "tests_typeId_type_typeId_fk",
+          "tableFrom": "tests",
+          "tableTo": "type",
+          "columnsFrom": [
+            "typeId"
+          ],
+          "columnsTo": [
+            "typeId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "tests_automationStatusId_automationStatus_automationStatusId_fk": {
+          "name": "tests_automationStatusId_automationStatus_automationStatusId_fk",
+          "tableFrom": "tests",
+          "tableTo": "automationStatus",
+          "columnsFrom": [
+            "automationStatusId"
+          ],
+          "columnsTo": [
+            "automationStatusId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "tests_testCoveredById_testCoveredBy_testCoveredById_fk": {
+          "name": "tests_testCoveredById_testCoveredBy_testCoveredById_fk",
+          "tableFrom": "tests",
+          "tableTo": "testCoveredBy",
+          "columnsFrom": [
+            "testCoveredById"
+          ],
+          "columnsTo": [
+            "testCoveredById"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "tests_assignedTo_users_userId_fk": {
+          "name": "tests_assignedTo_users_userId_fk",
+          "tableFrom": "tests",
+          "tableTo": "users",
+          "columnsFrom": [
+            "assignedTo"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "tests_createdBy_users_userId_fk": {
+          "name": "tests_createdBy_users_userId_fk",
+          "tableFrom": "tests",
+          "tableTo": "users",
+          "columnsFrom": [
+            "createdBy"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "tests_updatedBy_users_userId_fk": {
+          "name": "tests_updatedBy_users_userId_fk",
+          "tableFrom": "tests",
+          "tableTo": "users",
+          "columnsFrom": [
+            "updatedBy"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "tests_platformId_platform_platformId_fk": {
+          "name": "tests_platformId_platform_platformId_fk",
+          "tableFrom": "tests",
+          "tableTo": "platform",
+          "columnsFrom": [
+            "platformId"
+          ],
+          "columnsTo": [
+            "platformId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "tests_testId": {
+          "name": "tests_testId",
+          "columns": [
+            "testId"
+          ]
+        }
+      },
+      "uniqueConstraints": {}
+    },
+    "type": {
+      "name": "type",
+      "columns": {
+        "typeId": {
+          "name": "typeId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "typeName": {
+          "name": "typeName",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdOn": {
+          "name": "createdOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updatedOn": {
+          "name": "updatedOn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "orgId": {
+          "name": "orgId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "typeNameIndex": {
+          "name": "typeNameIndex",
+          "columns": [
+            "typeName"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "type_createdBy_users_userId_fk": {
+          "name": "type_createdBy_users_userId_fk",
+          "tableFrom": "type",
+          "tableTo": "users",
+          "columnsFrom": [
+            "createdBy"
+          ],
+          "columnsTo": [
+            "userId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "type_orgId_organisations_orgId_fk": {
+          "name": "type_orgId_organisations_orgId_fk",
+          "tableFrom": "type",
+          "tableTo": "organisations",
+          "columnsFrom": [
+            "orgId"
+          ],
+          "columnsTo": [
+            "orgId"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "type_projectId_projects_projectId_fk": {
+          "name": "type_projectId_projects_projectId_fk",
+          "tableFrom": "type",
+          "tableTo": "projects",
+          "columnsFrom": [
+            "projectId"
+          ],
+          "columnsTo": [
+            "projectId"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "type_typeId": {
+          "name": "type_typeId",
+          "columns": [
+            "typeId"
+          ]
+        }
+      },
+      "uniqueConstraints": {}
+    },
+    "users": {
+      "name": "users",
+      "columns": {
+        "userId": {
+          "name": "userId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "userName": {
+          "name": "userName",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "email": {
+          "name": "email",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ssoId": {
+          "name": "ssoId",
+          "type": "varchar(200)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "profileUrl": {
+          "name": "profileUrl",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "role": {
+          "name": "role",
+          "type": "enum('admin','user','reader')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'user'"
+        },
+        "token": {
+          "name": "token",
+          "type": "varchar(500)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updatedBy": {
+          "name": "updatedBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "enum('active','archive','delete')",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": "'active'"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "users_userId": {
+          "name": "users_userId",
+          "columns": [
+            "userId"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "users_email_unique": {
+          "name": "users_email_unique",
+          "columns": [
+            "email"
+          ]
+        },
+        "users_ssoId_unique": {
+          "name": "users_ssoId_unique",
+          "columns": [
+            "ssoId"
+          ]
+        },
+        "users_token_unique": {
+          "name": "users_token_unique",
+          "columns": [
+            "token"
+          ]
+        }
+      }
+    }
+  },
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "tables": {},
+    "indexes": {}
+  }
+}

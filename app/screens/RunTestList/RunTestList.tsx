@@ -111,6 +111,7 @@ export default function RunTestList() {
     resp?.data?.resultRevisionCommandsEnabled ?? false
   const planeDefectCreationEnabled =
     resp?.data?.planeDefectCreationEnabled ?? false
+  const planeEvidenceCopyEnabled = resp?.data?.planeEvidenceCopyEnabled ?? false
 
   const totalCount = resp?.data?.totalCount ?? 0
 
@@ -136,7 +137,11 @@ export default function RunTestList() {
   const table = useReactTable({
     data: testRunsData,
     columns: RunTestListColumnConfig,
-    meta: {resultRevisionCommandsEnabled, planeDefectCreationEnabled},
+    meta: {
+      resultRevisionCommandsEnabled,
+      planeDefectCreationEnabled,
+      planeEvidenceCopyEnabled,
+    },
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
@@ -488,6 +493,7 @@ export default function RunTestList() {
             variant="bulkUpdate"
             resultRevisionCommandsEnabled={resultRevisionCommandsEnabled}
             planeDefectCreationEnabled={planeDefectCreationEnabled}
+            planeEvidenceCopyEnabled={planeEvidenceCopyEnabled}
           />
         )}
 

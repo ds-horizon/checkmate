@@ -17,7 +17,7 @@ const DEFAULT_RETRY_DELAY_MS = 60_000
 const MAX_RETRY_DELAY_MS = 60 * 60 * 1000
 const DEFAULT_BATCH_SIZE = 10
 const MAX_BATCH_SIZE = 100
-const DEFAULT_LEASE_MS = 60_000
+const DEFAULT_LEASE_MS = 70_000
 const MIN_LEASE_SAFETY_MS = 5_000
 
 export type PlaneDeliveryPayload = ResultRevisionCommittedPayload & {
@@ -122,9 +122,10 @@ export const runPlaneDeliveryBatch = async ({
     const event = rawEvent as ClaimedResultOutboxEvent & {
       payload: PlaneDeliveryPayload
     }
-    const intent = event.payload.planeDefectIntent
+    const defectIntent = event.payload.planeDefectIntent
+    const evidenceIntent = event.payload.planeEvidenceIntent
 
-    if (!intent?.create) {
+    if (!defectIntent?.create && !evidenceIntent) {
       const finalized = await finalizeResultOutboxEvent({
         resultOutboxId: event.resultOutboxId,
         leaseToken: event.leaseToken,

@@ -1,5 +1,9 @@
 import {and, eq} from 'drizzle-orm'
-import {defectCycles, PlaneDefectIntent} from '@schema/resultRevisions'
+import {
+  defectCycles,
+  PlaneDefectIntent,
+  PlaneEvidenceIntent,
+} from '@schema/resultRevisions'
 import {dbClient} from '~/db/client'
 import {
   createPlaneAdapter,
@@ -18,11 +22,21 @@ import {
 import {
   arePlaneApiWritesEnabled,
   isPlaneDeliveryWorkerEnabled,
+  isPlaneEvidenceCopyEnabled,
 } from './resultRevisionFlags'
+import {
+  deliverPlaneEvidence,
+  PlaneEvidenceDeliveryStore,
+} from './planeEvidenceDelivery'
 
 type CycleReservation =
   | {outcome: 'reserved'}
   | {outcome: 'delivered'}
+  | {outcome: 'manual_attention'; reason: string}
+
+type LinkedWorkItem =
+  | {outcome: 'linked'; workItemId: string}
+  | {outcome: 'retry_due'; reason: string; retryAfterMs?: number}
   | {outcome: 'manual_attention'; reason: string}
 
 export type PlaneDefectCycleStore = {
@@ -37,6 +51,10 @@ export type PlaneDefectCycleStore = {
     observedOn: Date,
   ): Promise<boolean>
   releaseRetry(intent: PlaneDefectIntent): Promise<boolean>
+  resolveLinkedWorkItem(
+    intent: PlaneEvidenceIntent,
+    config: PlaneAdapterConfig,
+  ): Promise<LinkedWorkItem>
 }
 
 const providerUrl = (
@@ -153,21 +171,96 @@ export const planeDefectCycleStore: PlaneDefectCycleStore = {
 
     return result[0].affectedRows === 1
   },
+
+  resolveLinkedWorkItem: async (intent, config) => {
+    const [cycle] = await dbClient
+      .select({
+        provider: defectCycles.provider,
+        providerWorkspaceId: defectCycles.providerWorkspaceId,
+        providerProjectId: defectCycles.providerProjectId,
+        providerWorkItemId: defectCycles.providerWorkItemId,
+        state: defectCycles.state,
+      })
+      .from(defectCycles)
+      .where(eq(defectCycles.defectCycleId, intent.defectCycleId))
+      .limit(1)
+
+    if (!cycle) {
+      return {
+        outcome: 'manual_attention',
+        reason: 'Plane defect cycle was not found for evidence delivery',
+      }
+    }
+    if (
+      cycle.provider !== 'plane' ||
+      cycle.providerWorkspaceId !== config.workspaceId ||
+      cycle.providerProjectId !== config.projectId
+    ) {
+      return {
+        outcome: 'manual_attention',
+        reason: 'Plane evidence cycle destination did not match',
+      }
+    }
+    if (cycle.providerWorkItemId) {
+      return {outcome: 'linked', workItemId: cycle.providerWorkItemId}
+    }
+    if (cycle.state === 'intake_pending') {
+      return {
+        outcome: 'retry_due',
+        reason: 'Plane evidence is waiting for the defect work item',
+        retryAfterMs: 5_000,
+      }
+    }
+    return {
+      outcome: 'manual_attention',
+      reason: `Plane evidence has no linked work item in cycle state: ${cycle.state}`,
+    }
+  },
 }
 
 export const createPlaneResultDeliveryAdapter = ({
   config,
   planeAdapter,
   cycleStore = planeDefectCycleStore,
+  evidenceCopyEnabled = false,
+  evidenceStore,
   clock = () => new Date(),
 }: {
   config: PlaneAdapterConfig
   planeAdapter: PlaneAdapter
   cycleStore?: PlaneDefectCycleStore
+  evidenceCopyEnabled?: boolean
+  evidenceStore?: PlaneEvidenceDeliveryStore
   clock?: () => Date
 }): PlaneResultDeliveryAdapter => ({
-  maxDeliveryMs: config.timeoutMs,
+  maxDeliveryMs: config.timeoutMs * 6,
   async deliverResultRevision(event) {
+    const evidenceIntent = event.payload.planeEvidenceIntent
+    if (evidenceIntent) {
+      if (!evidenceCopyEnabled) {
+        return {
+          outcome: 'retry_due',
+          reason: 'Plane evidence copy is disabled',
+          retryAfterMs: 60 * 60 * 1000,
+        }
+      }
+      const linkedWorkItem = await cycleStore.resolveLinkedWorkItem(
+        evidenceIntent,
+        config,
+      )
+      if (linkedWorkItem.outcome !== 'linked') return linkedWorkItem
+      return deliverPlaneEvidence({
+        intent: evidenceIntent,
+        leaseToken: event.leaseToken,
+        leaseExpiresOn: event.leaseExpiresOn,
+        workItemId: linkedWorkItem.workItemId,
+        config,
+        planeAdapter,
+        ...(evidenceStore ? {store: evidenceStore} : {}),
+        clock,
+      })
+    }
+
     const intent = event.payload.planeDefectIntent
     if (!intent?.create) return {outcome: 'delivered'}
 
@@ -246,9 +339,24 @@ export const runConfiguredPlaneDeliveryBatch = async ({
   }
 
   const config = readPlaneAdapterConfig(environment)
+  const configuredLeaseMs = environment.PLANE_DELIVERY_LEASE_MS
+  const environmentLeaseMs =
+    configuredLeaseMs === undefined ? undefined : Number(configuredLeaseMs)
+  if (
+    environmentLeaseMs !== undefined &&
+    (!Number.isInteger(environmentLeaseMs) || environmentLeaseMs < 1)
+  ) {
+    throw new Error('PLANE_DELIVERY_LEASE_MS must be a positive integer')
+  }
   const adapter = createPlaneResultDeliveryAdapter({
     config,
     planeAdapter: createPlaneAdapter(environment),
+    evidenceCopyEnabled: isPlaneEvidenceCopyEnabled(environment),
   })
-  return runPlaneDeliveryBatch({adapter, environment, limit, leaseMs})
+  return runPlaneDeliveryBatch({
+    adapter,
+    environment,
+    limit,
+    leaseMs: leaseMs ?? environmentLeaseMs,
+  })
 }

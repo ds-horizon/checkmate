@@ -82,6 +82,67 @@ export const getSignedAttachmentUrl = async (key: string): Promise<string> => {
   )
 }
 
+export const downloadAttachment = async (
+  key: string,
+  {timeoutMs}: {timeoutMs?: number} = {},
+): Promise<Buffer> => {
+  if (!isValidAttachmentKey(key)) {
+    throw new Error(`Refusing to read an unexpected attachment key: ${key}`)
+  }
+
+  const bucket = process.env.S3_BUCKET
+  if (!bucket) {
+    throw new Error('S3_BUCKET is not configured')
+  }
+
+  const controller = new AbortController()
+  let cancelBody = () => controller.abort()
+  let budgetError: Error | undefined
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  const budget =
+    timeoutMs === undefined
+      ? undefined
+      : new Promise<never>((_, reject) => {
+          timeout = setTimeout(() => {
+            budgetError = new Error('Attachment download exceeded its delivery budget')
+            cancelBody()
+            reject(budgetError)
+          }, timeoutMs)
+        })
+  let response
+  try {
+    const request = getS3Client().send(
+      new GetObjectCommand({Bucket: bucket, Key: key}),
+      {abortSignal: controller.signal},
+    )
+    response = budget ? await Promise.race([request, budget]) : await request
+  } finally {
+    if (!response && timeout) clearTimeout(timeout)
+  }
+  if (!response.Body) {
+    if (timeout) clearTimeout(timeout)
+    throw new Error('Attachment object did not include a body')
+  }
+
+  if (!budget) {
+    return Buffer.from(await response.Body.transformToByteArray())
+  }
+
+  const body = response.Body
+  if ('destroy' in body && typeof body.destroy === 'function') {
+    cancelBody = () => {
+      controller.abort()
+      body.destroy(budgetError)
+    }
+  }
+  try {
+    const bytes = await Promise.race([body.transformToByteArray(), budget])
+    return Buffer.from(bytes)
+  } finally {
+    if (timeout) clearTimeout(timeout)
+  }
+}
+
 export const deleteAttachment = async (key: string): Promise<void> => {
   if (!isValidAttachmentKey(key)) {
     throw new Error(`Refusing to delete an unexpected attachment key: ${key}`)

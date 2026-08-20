@@ -1,4 +1,4 @@
-import {defectCycles} from '@schema/resultRevisions'
+import {defectCycles, planeEvidenceDeliveries} from '@schema/resultRevisions'
 
 const execute = jest.fn()
 const query: Record<string, jest.Mock> = {execute}
@@ -64,6 +64,20 @@ describe('TestRunsDao.getAllTestRuns Plane projection', () => {
     )
     expect(
       query.leftJoin.mock.calls.some(([table]) => table === defectCycles),
+    ).toBe(true)
+    expect(projection.planeEvidenceState.sql.queryChunks).toContain(
+      planeEvidenceDeliveries.deliveryState,
+    )
+    expect(staticSqlText(projection.planeEvidenceState)).toContain(
+      "THEN 'manual_attention'",
+    )
+    expect(staticSqlText(projection.planeEvidenceState)).toContain(
+      "THEN 'delivered'",
+    )
+    expect(
+      query.leftJoin.mock.calls.some(
+        ([table]) => table === planeEvidenceDeliveries,
+      ),
     ).toBe(true)
   })
 })

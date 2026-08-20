@@ -7,6 +7,7 @@ type PlaneDefectState = NonNullable<Tests['planeDefectState']>
 interface PlaneDefectStatusProps {
   state: Tests['planeDefectState']
   url: string | null
+  evidenceState: Tests['planeEvidenceState']
 }
 
 const statePresentation: Record<
@@ -69,33 +70,70 @@ const safePlaneUrl = (value: string | null) => {
   }
 }
 
-export const PlaneDefectStatus = ({state, url}: PlaneDefectStatusProps) => {
-  if (!state) return null
+const evidencePresentation = {
+  pending: {
+    label: 'Evidence copying',
+    className: 'border-amber-200 bg-amber-50 text-amber-800',
+  },
+  delivered: {
+    label: 'Evidence copied',
+    className: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+  },
+  manual_attention: {
+    label: 'Evidence needs help',
+    className: 'border-red-200 bg-red-50 text-red-800',
+  },
+} as const
 
-  const presentation = statePresentation[state]
+export const PlaneDefectStatus = ({
+  state,
+  url,
+  evidenceState,
+}: PlaneDefectStatusProps) => {
+  if (!state && !evidenceState) return null
+
+  const presentation = state ? statePresentation[state] : null
   const safeUrl = safePlaneUrl(url)
-  const className = cn(
+  const ticketClassName = cn(
     'inline-flex max-w-[240px] items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium',
-    presentation.className,
+    presentation?.className,
   )
-
-  if (!safeUrl) {
-    return <span className={className}>{presentation.label}</span>
-  }
+  const evidence = evidenceState
+    ? evidencePresentation[evidenceState]
+    : null
+  const ticket = presentation ? (
+    safeUrl ? (
+      <a
+        href={safeUrl}
+        target="_blank"
+        rel="noreferrer"
+        className={cn(
+          ticketClassName,
+          'transition-colors hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2',
+        )}
+        aria-label={`${presentation.label}. Open Plane ticket in a new tab`}
+      >
+        <span>{presentation.label}</span>
+        <ExternalLink size={12} aria-hidden="true" />
+      </a>
+    ) : (
+      <span className={ticketClassName}>{presentation.label}</span>
+    )
+  ) : null
 
   return (
-    <a
-      href={safeUrl}
-      target="_blank"
-      rel="noreferrer"
-      className={cn(
-        className,
-        'transition-colors hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2',
+    <div className="flex flex-col items-start gap-1">
+      {ticket}
+      {evidence && (
+        <span
+          className={cn(
+            'inline-flex max-w-[240px] items-center rounded-full border px-2 py-1 text-[11px] font-medium',
+            evidence.className,
+          )}
+        >
+          {evidence.label}
+        </span>
       )}
-      aria-label={`${presentation.label}. Open Plane ticket in a new tab`}
-    >
-      <span>{presentation.label}</span>
-      <ExternalLink size={12} aria-hidden="true" />
-    </a>
+    </div>
   )
 }

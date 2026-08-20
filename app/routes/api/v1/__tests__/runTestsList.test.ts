@@ -10,6 +10,7 @@ import {API} from '~/routes/utilities/api'
 import {
   areResultRevisionCommandsEnabled,
   isPlaneDefectCreationEnabled,
+  isPlaneEvidenceCopyEnabled,
 } from '~/services/resultRevisionFlags'
 
 jest.mock('@route/utils/getSearchParams')
@@ -23,6 +24,7 @@ describe('Get Run Tests - Loader Function', () => {
     jest.clearAllMocks()
     ;(areResultRevisionCommandsEnabled as jest.Mock).mockReturnValue(true)
     ;(isPlaneDefectCreationEnabled as jest.Mock).mockReturnValue(false)
+    ;(isPlaneEvidenceCopyEnabled as jest.Mock).mockReturnValue(false)
   })
 
   it('should successfully fetch test runs data for valid search parameters', async () => {
@@ -63,6 +65,7 @@ describe('Get Run Tests - Loader Function', () => {
         ...mockTestRunsData,
         resultRevisionCommandsEnabled: true,
         planeDefectCreationEnabled: false,
+        planeEvidenceCopyEnabled: false,
       },
       status: 200,
     })

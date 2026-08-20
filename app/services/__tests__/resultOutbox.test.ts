@@ -107,6 +107,23 @@ describe('result outbox leases', () => {
     expect(trx.update).toHaveBeenCalledTimes(2)
   })
 
+  it('uses the 70-second default lease for outbox claims', async () => {
+    const updateQuery = createUpdateQuery()
+    const trx = {
+      select: jest.fn(() => createSelectQuery([event])),
+      update: jest.fn(() => updateQuery),
+    }
+    transaction.mockImplementation(async (callback) => callback(trx))
+    ;(randomUUID as jest.Mock).mockReturnValue('lease-one')
+    const now = new Date('2026-08-20T00:00:00.000Z')
+
+    await expect(claimResultOutboxEvents({limit: 1, now})).resolves.toEqual([
+      expect.objectContaining({
+        leaseExpiresOn: new Date('2026-08-20T00:01:10.000Z'),
+      }),
+    ])
+  })
+
   it('returns no claims without issuing updates when nothing is due', async () => {
     const trx = {
       select: jest.fn(() => createSelectQuery([])),

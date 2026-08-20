@@ -1,0 +1,1 @@
+ALTER TABLE `planeEvidenceDeliveries` ADD `leaseExpiresOn` timestamp;

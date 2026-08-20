@@ -3,6 +3,7 @@ import {and, desc, eq, inArray} from 'drizzle-orm'
 import {projects} from '@schema/projects'
 import {
   defectCycles,
+  planeEvidenceDeliveries,
   resultCommands,
   resultAttachmentObjects,
   resultOutbox,
@@ -64,6 +65,24 @@ const canonicalCommandPayload = (command: SaveHumanResultCommand) => {
 const PLANE_PROVIDER = 'plane'
 const PLANE_WORKSPACE_ID = 'e36dfd86-953a-4e33-a410-856208893bb9'
 const PLANE_PROJECT_ID = '67726ee5-7d0c-4656-8bc8-b2f8a959d5da'
+
+const buildPlaneAttachmentName = ({
+  objectKey,
+  resultAttachmentObjectId,
+  sha256,
+}: {
+  objectKey: string
+  resultAttachmentObjectId: number
+  sha256: string
+}) => {
+  const originalName =
+    objectKey.replace(
+      /^test-run-attachments\/[0-9a-f-]{36}-/,
+      '',
+    ) || 'screenshot'
+  const prefix = `checkmate-${resultAttachmentObjectId}-${sha256.slice(0, 12)}-`
+  return `${prefix}${originalName.slice(-(255 - prefix.length))}`
+}
 
 const isPlaneDefectEligibleStatus = (status: TestStatusType) =>
   status === TestStatusType.Failed || status === TestStatusType.Retest
@@ -280,6 +299,9 @@ export const saveHumanResult = async (
               projectId: resultAttachmentObjects.projectId,
               runId: resultAttachmentObjects.runId,
               testId: resultAttachmentObjects.testId,
+              contentType: resultAttachmentObjects.contentType,
+              byteSize: resultAttachmentObjects.byteSize,
+              sha256: resultAttachmentObjects.sha256,
               lifecycleState: resultAttachmentObjects.lifecycleState,
             })
             .from(resultAttachmentObjects)
@@ -375,6 +397,9 @@ export const saveHumanResult = async (
 
     let defectCycleId: number | null = null
     let planeDefectIntent: ResultRevisionCommittedPayload['planeDefectIntent']
+    const planeEvidenceIntents: NonNullable<
+      ResultRevisionCommittedPayload['planeEvidenceIntent']
+    >[] = []
 
     if (createPlaneDefect) {
       const [activeCycle] = await trx
@@ -464,6 +489,86 @@ export const saveHumanResult = async (
           'Result revision cycle link did not affect exactly one row',
         )
       }
+
+      const noteNeedsSeparateDelivery =
+        !planeDefectIntent && Boolean(effectiveComment?.trim())
+      const evidenceSources = [
+        ...(noteNeedsSeparateDelivery
+          ? [
+              {
+                sourceKind: 'note' as const,
+                sourceIdentity: `result-revision:${resultRevisionId}:note`,
+                sourceText: effectiveComment as string,
+                sourceObjectKey: null,
+                sourceSha256: createHash('sha256')
+                  .update(effectiveComment as string, 'utf8')
+                  .digest('hex'),
+                sourceContentType: 'text/plain; charset=utf-8',
+                sourceByteSize: Buffer.byteLength(
+                  effectiveComment as string,
+                  'utf8',
+                ),
+                providerResourceName: `Checkmate result revision ${revisionNumber}`,
+                resultAttachmentObjectId: null,
+              },
+            ]
+          : []),
+        ...attachmentObjects.map((attachment) => ({
+          sourceKind: 'attachment' as const,
+          sourceIdentity: `result-attachment:${attachment.resultAttachmentObjectId}:${attachment.sha256}`,
+          sourceText: null,
+          sourceObjectKey: attachment.objectKey,
+          sourceSha256: attachment.sha256,
+          sourceContentType: attachment.contentType,
+          sourceByteSize: attachment.byteSize,
+          providerResourceName: buildPlaneAttachmentName(attachment),
+          resultAttachmentObjectId: attachment.resultAttachmentObjectId,
+        })),
+      ]
+
+      for (const source of evidenceSources) {
+        const [existingDelivery] = await trx
+          .select({
+            planeEvidenceDeliveryId:
+              planeEvidenceDeliveries.planeEvidenceDeliveryId,
+          })
+          .from(planeEvidenceDeliveries)
+          .where(
+            and(
+              eq(planeEvidenceDeliveries.defectCycleId, defectCycleId),
+              eq(planeEvidenceDeliveries.sourceIdentity, source.sourceIdentity),
+            ),
+          )
+          .limit(1)
+          .for('update')
+        if (existingDelivery) continue
+
+        const deliveryInsert = await trx.insert(planeEvidenceDeliveries).values({
+          defectCycleId,
+          resultRevisionId,
+          resultAttachmentObjectId: source.resultAttachmentObjectId,
+          sourceKind: source.sourceKind,
+          sourceIdentity: source.sourceIdentity,
+          sourceText: source.sourceText,
+          sourceObjectKey: source.sourceObjectKey,
+          sourceSha256: source.sourceSha256,
+          sourceContentType: source.sourceContentType,
+          sourceByteSize: source.sourceByteSize,
+          providerResourceName: source.providerResourceName,
+          provider: PLANE_PROVIDER,
+          providerWorkspaceId: PLANE_WORKSPACE_ID,
+          providerProjectId: PLANE_PROJECT_ID,
+        })
+        const planeEvidenceDeliveryId = deliveryInsert[0].insertId
+        if (!planeEvidenceDeliveryId) {
+          throw new Error('Plane evidence delivery insert did not return an ID')
+        }
+        planeEvidenceIntents.push({
+          planeEvidenceDeliveryId,
+          defectCycleId,
+          resultRevisionId,
+        })
+      }
     }
 
     const outcome: ResultCommandOutcome = {
@@ -512,6 +617,17 @@ export const saveHumanResult = async (
       resultRevisionId,
       payload: outboxPayload,
     })
+
+    for (const planeEvidenceIntent of planeEvidenceIntents) {
+      await trx.insert(resultOutbox).values({
+        eventKey: `plane-evidence:${planeEvidenceIntent.planeEvidenceDeliveryId}`,
+        eventType: 'plane_evidence_delivery_requested',
+        aggregateType: 'plane_evidence',
+        aggregateId: planeEvidenceIntent.planeEvidenceDeliveryId,
+        resultRevisionId,
+        payload: {...outboxPayload, planeEvidenceIntent},
+      })
+    }
 
     await trx.insert(resultCommands).values({
       resultCommandId: command.resultCommandId,

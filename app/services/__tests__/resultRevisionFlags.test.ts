@@ -3,6 +3,7 @@ import {
   areResultRevisionCommandsEnabled,
   isPlaneDefectCreationEnabled,
   isPlaneDeliveryWorkerEnabled,
+  isPlaneEvidenceCopyEnabled,
 } from '../resultRevisionFlags'
 
 describe('areResultRevisionCommandsEnabled', () => {
@@ -34,6 +35,7 @@ describe('Plane integration flags', () => {
     expect(isPlaneDeliveryWorkerEnabled({})).toBe(false)
     expect(arePlaneApiWritesEnabled({})).toBe(false)
     expect(isPlaneDefectCreationEnabled({})).toBe(false)
+    expect(isPlaneEvidenceCopyEnabled({})).toBe(false)
   })
 
   it('accepts only an explicit lowercase true for each boundary', () => {
@@ -55,6 +57,16 @@ describe('Plane integration flags', () => {
         PLANE_API_WRITES_ENABLED: 'true',
       }),
     ).toBe(true)
+    expect(
+      isPlaneEvidenceCopyEnabled({
+        PLANE_EVIDENCE_COPY_ENABLED: 'true',
+        PLANE_DELIVERY_WORKER_ENABLED: 'true',
+        PLANE_API_WRITES_ENABLED: 'true',
+      }),
+    ).toBe(true)
+    expect(
+      isPlaneEvidenceCopyEnabled({PLANE_EVIDENCE_COPY_ENABLED: 'true'}),
+    ).toBe(false)
     expect(
       isPlaneDeliveryWorkerEnabled({PLANE_DELIVERY_WORKER_ENABLED: 'TRUE'}),
     ).toBe(false)

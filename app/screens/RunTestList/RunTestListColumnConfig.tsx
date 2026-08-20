@@ -166,6 +166,13 @@ export const RunTestListColumnConfig: ColumnDef<Tests>[] = [
                     | undefined
                 )?.planeDefectCreationEnabled,
               )}
+              planeEvidenceCopyEnabled={Boolean(
+                (
+                  table.options.meta as
+                    | {planeEvidenceCopyEnabled?: boolean}
+                    | undefined
+                )?.planeEvidenceCopyEnabled,
+              )}
             />
           ) : (
             <span className="text-sm text-slate-700">
@@ -197,6 +204,7 @@ export const RunTestListColumnConfig: ColumnDef<Tests>[] = [
           <PlaneDefectStatus
             state={row.original.planeDefectState}
             url={row.original.planeDefectUrl}
+            evidenceState={row.original.planeEvidenceState}
           />
         </div>
       )

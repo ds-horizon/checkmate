@@ -487,17 +487,38 @@ describe('result commands', () => {
     const result = await saveHumanResult({...command, createPlaneDefect: true})
 
     expect(result.defectCycleId).toBe(73)
-    expect(fake.insert).toHaveBeenCalledTimes(4)
+    expect(fake.insert).toHaveBeenCalledTimes(6)
     expect(fake.insertedValues[2]).toEqual(
+      expect.objectContaining({
+        defectCycleId: 73,
+        resultRevisionId: 41,
+        sourceKind: 'note',
+        sourceIdentity: 'result-revision:41:note',
+        sourceText: command.comment,
+      }),
+    )
+    expect(fake.insertedValues[3]).toEqual(
       expect.objectContaining({
         eventType: 'result_revision_committed',
         payload: expect.objectContaining({defectCycleId: 73}),
       }),
     )
-    expect(fake.insertedValues[2]).toEqual(
+    expect(fake.insertedValues[3]).toEqual(
       expect.objectContaining({
         payload: expect.not.objectContaining({
           planeDefectIntent: expect.anything(),
+        }),
+      }),
+    )
+    expect(fake.insertedValues[4]).toEqual(
+      expect.objectContaining({
+        eventType: 'plane_evidence_delivery_requested',
+        aggregateType: 'plane_evidence',
+        payload: expect.objectContaining({
+          planeEvidenceIntent: expect.objectContaining({
+            defectCycleId: 73,
+            resultRevisionId: 41,
+          }),
         }),
       }),
     )
@@ -576,5 +597,96 @@ describe('result commands', () => {
       'test-run-attachments/a.png',
       'test-run-attachments/b.png',
     ])
+  })
+
+  it('enqueues each approved screenshot as an independent Plane evidence item', async () => {
+    const attachmentCommand = {
+      ...command,
+      createPlaneDefect: true,
+      attachmentKeys: [
+        'test-run-attachments/a.png',
+        'test-run-attachments/b.webp',
+      ],
+    }
+    const fake = createTransaction({
+      selectResults: [
+        [aggregate],
+        [],
+        [{testRunMapId: 17}],
+        [{userId: 23, role: 'user'}],
+        [],
+        [
+          {
+            resultAttachmentObjectId: 51,
+            objectKey: 'test-run-attachments/a.png',
+            testRunMapId: 17,
+            orgId: 3,
+            projectId: 5,
+            runId: 7,
+            testId: 11,
+            contentType: 'image/png',
+            byteSize: 9,
+            sha256: 'a'.repeat(64),
+            lifecycleState: 'uploaded',
+          },
+          {
+            resultAttachmentObjectId: 52,
+            objectKey: 'test-run-attachments/b.webp',
+            testRunMapId: 17,
+            orgId: 3,
+            projectId: 5,
+            runId: 7,
+            testId: 11,
+            contentType: 'image/webp',
+            byteSize: 10,
+            sha256: 'b'.repeat(64),
+            lifecycleState: 'uploaded',
+          },
+        ],
+        [],
+        [],
+        [],
+        [],
+      ],
+    })
+    transaction.mockImplementation(async (callback) => callback(fake.trx))
+
+    await saveHumanResult(attachmentCommand)
+
+    const evidenceRows = fake.insertedValues.filter(
+      (value): value is Record<string, unknown> =>
+        typeof value === 'object' &&
+        value !== null &&
+        'sourceIdentity' in value,
+    )
+    expect(evidenceRows).toEqual([
+      expect.objectContaining({
+        sourceKind: 'attachment',
+        sourceIdentity: `result-attachment:51:${'a'.repeat(64)}`,
+        sourceObjectKey: 'test-run-attachments/a.png',
+        providerResourceName: expect.stringContaining('checkmate-51-'),
+      }),
+      expect.objectContaining({
+        sourceKind: 'attachment',
+        sourceIdentity: `result-attachment:52:${'b'.repeat(64)}`,
+        sourceObjectKey: 'test-run-attachments/b.webp',
+        providerResourceName: expect.stringContaining('checkmate-52-'),
+      }),
+    ])
+
+    const evidenceEvents = fake.insertedValues.filter(
+      (value): value is Record<string, unknown> =>
+        typeof value === 'object' &&
+        value !== null &&
+        'eventType' in value &&
+        value.eventType === 'plane_evidence_delivery_requested',
+    )
+    expect(evidenceEvents).toHaveLength(2)
+    expect(evidenceEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({aggregateType: 'plane_evidence'}),
+        expect.objectContaining({aggregateType: 'plane_evidence'}),
+      ]),
+    )
   })
 })

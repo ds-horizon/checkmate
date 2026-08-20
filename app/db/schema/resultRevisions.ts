@@ -42,6 +42,12 @@ export type PlaneDefectIntent = {
   attachmentKeys: string[]
 }
 
+export type PlaneEvidenceIntent = {
+  planeEvidenceDeliveryId: number
+  defectCycleId: number
+  resultRevisionId: number
+}
+
 export type ResultRevisionCommittedPayload = {
   resultCommandId: string
   resultRevisionId: number
@@ -57,6 +63,7 @@ export type ResultRevisionCommittedPayload = {
   sourceSystem: 'checkmate'
   defectCycleId?: number
   planeDefectIntent?: PlaneDefectIntent
+  planeEvidenceIntent?: PlaneEvidenceIntent
 }
 
 export type IntegrationEventPayload = Record<string, unknown>
@@ -493,6 +500,99 @@ export const defectCycles = mysqlTable(
     defectCycleStateIndex: index('defectCycleStateIndex').on(
       cycle.state,
       cycle.updatedOn,
+    ),
+  }),
+)
+
+export const planeEvidenceDeliveries = mysqlTable(
+  'planeEvidenceDeliveries',
+  {
+    planeEvidenceDeliveryId: int('planeEvidenceDeliveryId')
+      .primaryKey()
+      .autoincrement(),
+    defectCycleId: int('defectCycleId').notNull(),
+    resultRevisionId: int('resultRevisionId').notNull(),
+    resultAttachmentObjectId: int('resultAttachmentObjectId'),
+    sourceKind: mysqlEnum('sourceKind', ['note', 'attachment']).notNull(),
+    sourceIdentity: varchar('sourceIdentity', {length: 160}).notNull(),
+    sourceText: text('sourceText'),
+    sourceObjectKey: varchar('sourceObjectKey', {length: 500}),
+    sourceSha256: varchar('sourceSha256', {length: 64}).notNull(),
+    sourceContentType: varchar('sourceContentType', {length: 100}),
+    sourceByteSize: int('sourceByteSize'),
+    providerResourceName: varchar('providerResourceName', {length: 255}),
+    provider: varchar('provider', {length: 32}).notNull(),
+    providerWorkspaceId: varchar('providerWorkspaceId', {length: 64}).notNull(),
+    providerProjectId: varchar('providerProjectId', {length: 64}).notNull(),
+    providerWorkItemId: varchar('providerWorkItemId', {length: 64}),
+    providerCommentId: varchar('providerCommentId', {length: 64}),
+    providerAssetId: varchar('providerAssetId', {length: 128}),
+    providerAttachmentId: varchar('providerAttachmentId', {length: 128}),
+    deliveryState: mysqlEnum('deliveryState', [
+      'pending',
+      'reserved',
+      'retry_due',
+      'delivered',
+      'manual_attention',
+    ])
+      .default('pending')
+      .notNull(),
+    leaseToken: varchar('leaseToken', {length: 64}),
+    leaseExpiresOn: timestamp('leaseExpiresOn'),
+    attemptCount: int('attemptCount').default(0).notNull(),
+    lastError: text('lastError'),
+    deliveredOn: timestamp('deliveredOn'),
+    createdOn: timestamp('createdOn')
+      .default(sql`CURRENT_TIMESTAMP`)
+      .notNull(),
+    updatedOn: timestamp('updatedOn')
+      .default(sql`CURRENT_TIMESTAMP`)
+      .notNull()
+      .onUpdateNow(),
+  },
+  (delivery) => ({
+    planeEvidenceCycleFk: foreignKey({
+      columns: [delivery.defectCycleId],
+      foreignColumns: [defectCycles.defectCycleId],
+      name: 'planeEvidenceCycleFk',
+    }),
+    planeEvidenceRevisionFk: foreignKey({
+      columns: [delivery.resultRevisionId],
+      foreignColumns: [resultRevisions.resultRevisionId],
+      name: 'planeEvidenceRevisionFk',
+    }),
+    planeEvidenceAttachmentObjectFk: foreignKey({
+      columns: [delivery.resultAttachmentObjectId],
+      foreignColumns: [resultAttachmentObjects.resultAttachmentObjectId],
+      name: 'planeEvidenceAttachmentObjectFk',
+    }),
+    planeEvidenceSourceUnique: unique('planeEvidenceSourceUnique').on(
+      delivery.defectCycleId,
+      delivery.sourceIdentity,
+    ),
+    planeEvidenceProviderCommentUnique: unique(
+      'planeEvidenceProviderCommentUnique',
+    ).on(
+      delivery.provider,
+      delivery.providerWorkspaceId,
+      delivery.providerProjectId,
+      delivery.providerCommentId,
+    ),
+    planeEvidenceProviderAssetUnique: unique(
+      'planeEvidenceProviderAssetUnique',
+    ).on(
+      delivery.provider,
+      delivery.providerWorkspaceId,
+      delivery.providerProjectId,
+      delivery.providerAssetId,
+    ),
+    planeEvidenceDeliveryIndex: index('planeEvidenceDeliveryIndex').on(
+      delivery.deliveryState,
+      delivery.updatedOn,
+    ),
+    planeEvidenceCycleIndex: index('planeEvidenceCycleIndex').on(
+      delivery.defectCycleId,
+      delivery.resultRevisionId,
     ),
   }),
 )

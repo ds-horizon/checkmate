@@ -10,6 +10,7 @@ import {API} from '../../utilities/api'
 import {
   areResultRevisionCommandsEnabled,
   isPlaneDefectCreationEnabled,
+  isPlaneEvidenceCopyEnabled,
 } from '~/services/resultRevisionFlags'
 
 export interface Tests {
@@ -46,6 +47,7 @@ export interface Tests {
     | 'manual_attention'
     | null
   planeDefectUrl: string | null
+  planeEvidenceState: 'pending' | 'delivered' | 'manual_attention' | null
 }
 
 export interface RunTestListResponseType {
@@ -54,6 +56,7 @@ export interface RunTestListResponseType {
     totalCount: number
     resultRevisionCommandsEnabled: boolean
     planeDefectCreationEnabled: boolean
+    planeEvidenceCopyEnabled: boolean
     error: any
   }
   status: number
@@ -75,6 +78,7 @@ export async function loader({params, request}: LoaderFunctionArgs) {
         ...testRunsData,
         resultRevisionCommandsEnabled: areResultRevisionCommandsEnabled(),
         planeDefectCreationEnabled: isPlaneDefectCreationEnabled(),
+        planeEvidenceCopyEnabled: isPlaneEvidenceCopyEnabled(),
       },
       status: 200,
     })

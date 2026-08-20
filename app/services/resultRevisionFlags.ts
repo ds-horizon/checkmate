@@ -16,3 +16,10 @@ export const isPlaneDefectCreationEnabled = (
   environment.PLANE_DEFECT_CREATION_ENABLED === 'true' &&
   isPlaneDeliveryWorkerEnabled(environment) &&
   arePlaneApiWritesEnabled(environment)
+
+export const isPlaneEvidenceCopyEnabled = (
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+) =>
+  environment.PLANE_EVIDENCE_COPY_ENABLED === 'true' &&
+  isPlaneDeliveryWorkerEnabled(environment) &&
+  arePlaneApiWritesEnabled(environment)

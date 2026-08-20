@@ -6,7 +6,7 @@ import {
 } from '@schema/resultRevisions'
 import {dbClient} from '~/db/client'
 
-const DEFAULT_LEASE_MS = 60_000
+const DEFAULT_LEASE_MS = 70_000
 const DEFAULT_BATCH_SIZE = 10
 const MAX_BATCH_SIZE = 100
 const MAX_DEADLOCK_ATTEMPTS = 3

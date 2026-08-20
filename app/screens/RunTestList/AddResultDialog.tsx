@@ -46,6 +46,7 @@ interface AddResultsDialogProps {
   containerClassName?: string
   resultRevisionCommandsEnabled?: boolean
   planeDefectCreationEnabled?: boolean
+  planeEvidenceCopyEnabled?: boolean
 }
 
 interface HistoryResponse {
@@ -77,6 +78,7 @@ export const AddResultDialog = ({
   containerClassName,
   resultRevisionCommandsEnabled = false,
   planeDefectCreationEnabled = false,
+  planeEvidenceCopyEnabled = false,
 }: AddResultsDialogProps) => {
   const updateStatusFetcher = useFetcher<any>()
   const [status, setStatus] = useState(currStatus ?? '')
@@ -117,6 +119,8 @@ export const AddResultDialog = ({
     planeDefectCreationEnabled &&
     variant !== 'bulkUpdate' &&
     (status === TestStatusType.Failed || status === TestStatusType.Retest)
+  const isPlaneEvidenceCopyEligible =
+    isPlaneDefectEligible && planeEvidenceCopyEnabled
 
   const revokeDraftPreviewUrls = (draftAttachments: ResultAttachment[]) => {
     draftAttachments.forEach((attachment) => {
@@ -796,9 +800,9 @@ export const AddResultDialog = ({
                     Create Plane defect
                   </label>
                   <p className="text-xs leading-relaxed text-slate-500">
-                    Queues this result note and screenshot references for
-                    delivery to the BIZ Development intake after the result is
-                    saved.
+                    {isPlaneEvidenceCopyEligible
+                      ? 'Copies this result note and eligible screenshots to the BIZ Development Plane project after save. Plane keeps its copy with the ticket.'
+                      : 'Creates a Plane defect after save. Result notes and screenshots remain in Checkmate.'}
                   </p>
                 </div>
               </div>

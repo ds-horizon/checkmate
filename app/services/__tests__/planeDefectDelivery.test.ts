@@ -1,25 +1,33 @@
 const transaction = jest.fn()
 const directUpdate = jest.fn()
+const directSelect = jest.fn()
 
 jest.mock('~/db/client', () => ({
   dbClient: {
     transaction,
     update: directUpdate,
+    select: directSelect,
   },
 }))
 
-import type {PlaneDefectIntent} from '@schema/resultRevisions'
+import type {
+  PlaneDefectIntent,
+  PlaneEvidenceIntent,
+} from '@schema/resultRevisions'
 import type {ClaimedResultOutboxEvent} from '../resultOutbox'
 import {
   createPlaneResultDeliveryAdapter,
   planeDefectCycleStore,
   PlaneDefectCycleStore,
+  runConfiguredPlaneDeliveryBatch,
 } from '../planeDefectDelivery'
+import {runPlaneDeliveryBatch} from '../planeDeliveryWorker'
 import {
   PlaneAdapter,
   PlaneAdapterConfig,
   PlaneAdapterError,
 } from '../planeAdapter'
+import type {PlaneEvidenceDeliveryStore} from '../planeEvidenceDelivery'
 
 const config: PlaneAdapterConfig = {
   baseUrl: 'https://plane-dev.geep-fence.ts.net',
@@ -39,6 +47,12 @@ const intent: PlaneDefectIntent = {
   description: 'Evidence',
   priority: 'high',
   attachmentKeys: [],
+}
+
+const evidenceIntent: PlaneEvidenceIntent = {
+  planeEvidenceDeliveryId: 74,
+  defectCycleId: 73,
+  resultRevisionId: 41,
 }
 
 const event: ClaimedResultOutboxEvent = {
@@ -81,6 +95,10 @@ const createCycleStore = (): jest.Mocked<PlaneDefectCycleStore> => ({
     ReturnType<PlaneDefectCycleStore['releaseRetry']>,
     Parameters<PlaneDefectCycleStore['releaseRetry']>
   >(async () => true),
+  resolveLinkedWorkItem: jest.fn<
+    ReturnType<PlaneDefectCycleStore['resolveLinkedWorkItem']>,
+    Parameters<PlaneDefectCycleStore['resolveLinkedWorkItem']>
+  >(async () => ({outcome: 'linked', workItemId: 'work-item-id'})),
 })
 
 const createAdapter = (): jest.Mocked<PlaneAdapter> => ({
@@ -94,6 +112,14 @@ const createAdapter = (): jest.Mocked<PlaneAdapter> => ({
     projectIdentifier: 'BIZ',
     raw: {},
   })),
+  ensureComment: jest.fn<
+    ReturnType<PlaneAdapter['ensureComment']>,
+    Parameters<PlaneAdapter['ensureComment']>
+  >(async () => ({commentId: 'comment-id'})),
+  ensureAttachment: jest.fn<
+    ReturnType<PlaneAdapter['ensureAttachment']>,
+    Parameters<PlaneAdapter['ensureAttachment']>
+  >(async () => ({assetId: 'asset-id', attachmentId: 'attachment-id'})),
 })
 
 const createSelectQuery = (rows: unknown[]) => {
@@ -122,6 +148,7 @@ describe('Plane defect cycle persistence', () => {
   beforeEach(() => {
     transaction.mockReset()
     directUpdate.mockReset()
+    directSelect.mockReset()
   })
 
   it('fences a matching pending cycle before the provider call', async () => {
@@ -205,9 +232,83 @@ describe('Plane defect cycle persistence', () => {
       lastProviderObservedOn: observedOn,
     })
   })
+
+  it('resolves evidence only to the durably linked work item', async () => {
+    directSelect.mockReturnValue(
+      createSelectQuery([
+        {
+          provider: 'plane',
+          providerWorkspaceId: config.workspaceId,
+          providerProjectId: config.projectId,
+          providerWorkItemId: 'work-item-id',
+          state: 'intake_open',
+        },
+      ]),
+    )
+
+    await expect(
+      planeDefectCycleStore.resolveLinkedWorkItem(evidenceIntent, config),
+    ).resolves.toEqual({outcome: 'linked', workItemId: 'work-item-id'})
+  })
+
+  it('keeps evidence pending until its defect has a durable work-item link', async () => {
+    directSelect.mockReturnValue(
+      createSelectQuery([
+        {
+          provider: 'plane',
+          providerWorkspaceId: config.workspaceId,
+          providerProjectId: config.projectId,
+          providerWorkItemId: null,
+          state: 'intake_pending',
+        },
+      ]),
+    )
+
+    await expect(
+      planeDefectCycleStore.resolveLinkedWorkItem(evidenceIntent, config),
+    ).resolves.toEqual({
+      outcome: 'retry_due',
+      reason: 'Plane evidence is waiting for the defect work item',
+      retryAfterMs: 5_000,
+    })
+  })
 })
 
 describe('Plane defect delivery adapter', () => {
+  it('rejects an invalid configured delivery lease before claiming work', async () => {
+    await expect(
+      runConfiguredPlaneDeliveryBatch({
+        environment: {
+          PLANE_DELIVERY_WORKER_ENABLED: 'true',
+          PLANE_API_WRITES_ENABLED: 'true',
+          PLANE_DESTINATION: 'biz-development',
+          PLANE_API_KEY: 'secret-api-key',
+          PLANE_DELIVERY_LEASE_MS: 'invalid',
+        },
+      }),
+    ).rejects.toThrow('PLANE_DELIVERY_LEASE_MS must be a positive integer')
+  })
+
+  it('rejects a 60-second lease when six 12-second evidence operations are possible', async () => {
+    const adapter = createPlaneResultDeliveryAdapter({
+      config: {...config, timeoutMs: 12_000},
+      planeAdapter: createAdapter(),
+      cycleStore: createCycleStore(),
+    })
+
+    expect(adapter.maxDeliveryMs).toBe(72_000)
+    await expect(
+      runPlaneDeliveryBatch({
+        adapter,
+        environment: {
+          PLANE_DELIVERY_WORKER_ENABLED: 'true',
+          PLANE_API_WRITES_ENABLED: 'true',
+        },
+        leaseMs: 60_000,
+      }),
+    ).rejects.toThrow('lease must exceed')
+  })
+
   it('reserves, creates, and durably correlates an intake', async () => {
     const cycleStore = createCycleStore()
     const planeAdapter = createAdapter()
@@ -306,5 +407,79 @@ describe('Plane defect delivery adapter', () => {
       outcome: 'manual_attention',
       reason: 'Plane intake was created but durable cycle correlation failed',
     })
+  })
+
+  it('keeps evidence retryable while the dedicated copy flag is disabled', async () => {
+    const adapter = createPlaneResultDeliveryAdapter({
+      config,
+      planeAdapter: createAdapter(),
+      cycleStore: createCycleStore(),
+    })
+
+    await expect(
+      adapter.deliverResultRevision({
+        ...event,
+        eventType: 'plane_evidence_delivery_requested',
+        payload: {...event.payload, planeEvidenceIntent: evidenceIntent},
+      }),
+    ).resolves.toEqual({
+      outcome: 'retry_due',
+      reason: 'Plane evidence copy is disabled',
+      retryAfterMs: 60 * 60 * 1000,
+    })
+  })
+
+  it('delivers evidence only after resolving the durable work-item link', async () => {
+    const cycleStore = createCycleStore()
+    const planeAdapter = createAdapter()
+    const evidenceStore: jest.Mocked<PlaneEvidenceDeliveryStore> = {
+      reserve: jest.fn<
+        ReturnType<PlaneEvidenceDeliveryStore['reserve']>,
+        Parameters<PlaneEvidenceDeliveryStore['reserve']>
+      >(async () => ({
+        outcome: 'reserved',
+        delivery: {
+          sourceKind: 'note',
+          sourceIdentity: 'result-revision:41:note',
+          sourceText: 'Checkout fails',
+          sourceObjectKey: null,
+          sourceSha256:
+            'e7c088d43aba7aaf61c464b5c2ae83aa48d1eaf78a0ff0b5345a8a955e57784b',
+          sourceContentType: 'text/plain; charset=utf-8',
+          sourceByteSize: 14,
+          providerResourceName: 'Checkmate result revision 1',
+        },
+      })),
+      complete: jest.fn<
+        ReturnType<PlaneEvidenceDeliveryStore['complete']>,
+        Parameters<PlaneEvidenceDeliveryStore['complete']>
+      >(async () => true),
+      fail: jest.fn<
+        ReturnType<PlaneEvidenceDeliveryStore['fail']>,
+        Parameters<PlaneEvidenceDeliveryStore['fail']>
+      >(async () => true),
+    }
+    const adapter = createPlaneResultDeliveryAdapter({
+      config,
+      planeAdapter,
+      cycleStore,
+      evidenceCopyEnabled: true,
+      evidenceStore,
+    })
+
+    await expect(
+      adapter.deliverResultRevision({
+        ...event,
+        eventType: 'plane_evidence_delivery_requested',
+        payload: {...event.payload, planeEvidenceIntent: evidenceIntent},
+      }),
+    ).resolves.toEqual({outcome: 'delivered'})
+    expect(cycleStore.resolveLinkedWorkItem).toHaveBeenCalledWith(
+      evidenceIntent,
+      config,
+    )
+    expect(planeAdapter.ensureComment).toHaveBeenCalledWith(
+      expect.objectContaining({workItemId: 'work-item-id'}),
+    )
   })
 })

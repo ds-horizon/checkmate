@@ -17,7 +17,7 @@ import {
   tests,
 } from '@schema/tests'
 import {users} from '@schema/users'
-import {defectCycles} from '@schema/resultRevisions'
+import {defectCycles, planeEvidenceDeliveries} from '@schema/resultRevisions'
 import {like, or} from 'drizzle-orm'
 import {and, asc, count, desc, eq, inArray, sql, SQL} from 'drizzle-orm/sql'
 import {TestStatusType} from '~/dataController/types'
@@ -182,6 +182,23 @@ const TestRunsDao = {
             THEN MAX(${defectCycles.providerUrl})
             ELSE NULL
           END`.as('planeDefectUrl'),
+          planeEvidenceState: sql<
+            'pending' | 'delivered' | 'manual_attention' | null
+          >`CASE
+            WHEN COUNT(DISTINCT ${testRunMap.testRunMapId}) <> 1 THEN NULL
+            WHEN SUM(CASE
+              WHEN ${planeEvidenceDeliveries.deliveryState} = 'manual_attention'
+              THEN 1 ELSE 0 END) > 0 THEN 'manual_attention'
+            WHEN SUM(CASE
+              WHEN ${planeEvidenceDeliveries.deliveryState} IN ('pending', 'reserved', 'retry_due')
+              THEN 1 ELSE 0 END) > 0 THEN 'pending'
+            WHEN COUNT(${planeEvidenceDeliveries.planeEvidenceDeliveryId}) > 0
+              AND SUM(CASE
+                WHEN ${planeEvidenceDeliveries.deliveryState} = 'delivered'
+                THEN 1 ELSE 0 END) = COUNT(${planeEvidenceDeliveries.planeEvidenceDeliveryId})
+              THEN 'delivered'
+            ELSE NULL
+          END`.as('planeEvidenceState'),
           testId: testRunMap.testId,
           priority: priorityTable.priorityName,
           title: tests.title,
@@ -208,6 +225,13 @@ const TestRunsDao = {
           and(
             eq(defectCycles.testRunMapId, testRunMap.testRunMapId),
             eq(defectCycles.activeMarker, 1),
+          ),
+        )
+        .leftJoin(
+          planeEvidenceDeliveries,
+          eq(
+            planeEvidenceDeliveries.defectCycleId,
+            defectCycles.defectCycleId,
           ),
         )
         .leftJoin(runs, eq(testRunMap.runId, runs.runId))

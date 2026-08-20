@@ -56,6 +56,22 @@ const withIntent = {
   },
 }
 
+const withEvidenceIntent = {
+  ...baseEvent,
+  eventKey: 'plane-evidence:74',
+  eventType: 'plane_evidence_delivery_requested',
+  aggregateType: 'plane_evidence',
+  aggregateId: 74,
+  payload: {
+    ...baseEvent.payload,
+    planeEvidenceIntent: {
+      planeEvidenceDeliveryId: 74,
+      defectCycleId: 73,
+      resultRevisionId: 41,
+    },
+  },
+}
+
 describe('Plane delivery worker', () => {
   beforeEach(() => {
     claimResultOutboxEvents.mockReset()
@@ -124,6 +140,25 @@ describe('Plane delivery worker', () => {
     )
   })
 
+  it('does not classify evidence events as legacy events without intent', async () => {
+    claimResultOutboxEvents.mockResolvedValue([withEvidenceIntent])
+    const adapter = {
+      maxDeliveryMs: 10_000,
+      deliverResultRevision: jest.fn(async () => ({
+        outcome: 'delivered' as const,
+      })),
+    }
+
+    await expect(
+      runPlaneDeliveryBatch({adapter, environment, limit: 1}),
+    ).resolves.toEqual(
+      expect.objectContaining({delivered: 1, skippedWithoutIntent: 0}),
+    )
+    expect(adapter.deliverResultRevision).toHaveBeenCalledWith(
+      withEvidenceIntent,
+    )
+  })
+
   it('leases each event immediately before its provider call', async () => {
     const secondEvent = {
       ...withIntent,
@@ -173,6 +208,21 @@ describe('Plane delivery worker', () => {
       }),
     ).rejects.toThrow('lease must exceed')
     expect(claimResultOutboxEvents).not.toHaveBeenCalled()
+  })
+
+  it('uses a 70-second default lease for a 60-second delivery bound', async () => {
+    claimResultOutboxEvents.mockResolvedValue([])
+    const adapter = {
+      maxDeliveryMs: 60_000,
+      deliverResultRevision: jest.fn(),
+    }
+
+    await expect(
+      runPlaneDeliveryBatch({adapter, environment, limit: 1}),
+    ).resolves.toEqual(expect.objectContaining({enabled: true, claimed: 0}))
+    expect(claimResultOutboxEvents).toHaveBeenCalledWith(
+      expect.objectContaining({leaseMs: 70_000}),
+    )
   })
 
   it('schedules controlled retryable failures with a bounded delay', async () => {

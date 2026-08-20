@@ -1,6 +1,7 @@
 import {
   buildAttachmentKey,
   deleteAttachment,
+  downloadAttachment,
   getSignedAttachmentUrl,
   isValidAttachmentKey,
   uploadAttachment,
@@ -79,6 +80,47 @@ describe('s3 service', () => {
       await expect(
         deleteAttachment('db-backups/nightly.sql.gz'),
       ).rejects.toThrow()
+      expect(sendMock).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('downloadAttachment', () => {
+    it('downloads a valid attachment into a buffer', async () => {
+      const key = buildAttachmentKey('screenshot.png')
+      sendMock.mockResolvedValueOnce({
+        Body: {transformToByteArray: async () => new Uint8Array([1, 2, 3])},
+      })
+
+      await expect(downloadAttachment(key)).resolves.toEqual(
+        Buffer.from([1, 2, 3]),
+      )
+    })
+
+    it('aborts a body download that exceeds its delivery budget', async () => {
+      jest.useFakeTimers()
+      const key = buildAttachmentKey('screenshot.png')
+      const transformToByteArray = jest.fn(
+        () => new Promise<Uint8Array>(() => {}),
+      )
+      const destroy = jest.fn()
+      sendMock.mockResolvedValueOnce({
+        Body: {transformToByteArray, destroy},
+      })
+
+      const download = downloadAttachment(key, {timeoutMs: 10})
+      const assertion = expect(download).rejects.toThrow(
+        'exceeded its delivery budget',
+      )
+      await jest.advanceTimersByTimeAsync(10)
+      await assertion
+      expect(destroy).toHaveBeenCalled()
+      jest.useRealTimers()
+    })
+
+    it('refuses to read an arbitrary key', async () => {
+      await expect(
+        downloadAttachment('db-backups/nightly.sql.gz'),
+      ).rejects.toThrow('Refusing to read')
       expect(sendMock).not.toHaveBeenCalled()
     })
   })

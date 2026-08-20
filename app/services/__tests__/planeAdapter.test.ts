@@ -189,4 +189,177 @@ describe('Plane intake adapter', () => {
       kind: 'manual_attention',
     })
   })
+
+  it('bounds intake response parsing within the Plane request timeout', async () => {
+    jest.useFakeTimers()
+    try {
+      const response = new Response(null, {status: 201})
+      const fetchImplementation: typeof fetch = jest.fn(async (_input, init) => {
+        response.json = () =>
+          new Promise((_, reject) => {
+            init?.signal?.addEventListener('abort', () =>
+              reject(new Error('response body aborted')),
+            )
+          })
+        return response
+      })
+      const adapter = createPlaneAdapter(
+        {...environment, PLANE_API_TIMEOUT_MS: '10'},
+        fetchImplementation,
+      )
+
+      const delivery = adapter.createIntake({
+        title: 'Defect',
+        description: 'Evidence',
+        priority: 'medium',
+      })
+      const assertion = expect(delivery).rejects.toMatchObject<
+        Partial<PlaneAdapterError>
+      >({
+        kind: 'manual_attention',
+        message: expect.stringContaining('response body aborted'),
+      })
+      await jest.advanceTimersByTimeAsync(10)
+
+      await assertion
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+})
+
+describe('Plane evidence adapter', () => {
+  it('reuses a comment with the deterministic evidence marker', async () => {
+    const fetchImplementation = jest.fn(async () =>
+      Response.json({
+        results: [
+          {
+            id: 'comment-id',
+            comment_html:
+              '<p>Copied</p><p>Checkmate evidence ID: revision:41</p>',
+          },
+        ],
+      }),
+    )
+    const adapter = createPlaneAdapter(environment, fetchImplementation)
+
+    await expect(
+      adapter.ensureComment({
+        workItemId: 'work-item-id',
+        marker: 'Checkmate evidence ID: revision:41',
+        commentHtml: '<p>Copied</p>',
+      }),
+    ).resolves.toEqual({commentId: 'comment-id'})
+    expect(fetchImplementation).toHaveBeenCalledTimes(1)
+    expect(fetchImplementation).toHaveBeenCalledWith(
+      expect.stringContaining('/work-items/work-item-id/comments/'),
+      expect.objectContaining({method: 'GET'}),
+    )
+  })
+
+  it('uploads and finalizes a native work-item attachment', async () => {
+    const fetchImplementation = jest
+      .fn()
+      .mockResolvedValueOnce(Response.json({results: []}))
+      .mockResolvedValueOnce(
+        Response.json(
+          {
+            asset_id: 'asset-id',
+            attachment: {id: 'attachment-id'},
+            upload_data: {
+              url: 'https://objects.example/upload',
+              fields: {key: 'plane/object-key', policy: 'signed-policy'},
+            },
+          },
+          {status: 201},
+        ),
+      )
+      .mockResolvedValueOnce(new Response(null, {status: 204}))
+      .mockResolvedValueOnce(Response.json({id: 'attachment-id'}))
+    const adapter = createPlaneAdapter(environment, fetchImplementation)
+
+    await expect(
+      adapter.ensureAttachment({
+        workItemId: 'work-item-id',
+        name: 'checkmate-51-proof.png',
+        contentType: 'image/png',
+        bytes: Buffer.from('png-bytes'),
+      }),
+    ).resolves.toEqual({
+      assetId: 'asset-id',
+      attachmentId: 'attachment-id',
+    })
+    expect(fetchImplementation).toHaveBeenNthCalledWith(
+      3,
+      'https://objects.example/upload',
+      expect.objectContaining({method: 'POST', body: expect.any(FormData)}),
+    )
+    expect(fetchImplementation).toHaveBeenNthCalledWith(
+      4,
+      expect.stringContaining('/attachments/asset-id/'),
+      expect.objectContaining({method: 'PATCH'}),
+    )
+  })
+
+  it('does not treat a matching unfinalized attachment slot as delivered', async () => {
+    const fetchImplementation = jest.fn(async () =>
+      Response.json({
+        results: [
+          {
+            id: 'attachment-id',
+            asset_id: 'asset-id',
+            name: 'checkmate-51-proof.png',
+            size: Buffer.byteLength('png-bytes'),
+            is_uploaded: false,
+          },
+        ],
+      }),
+    )
+    const adapter = createPlaneAdapter(environment, fetchImplementation)
+
+    await expect(
+      adapter.ensureAttachment({
+        workItemId: 'work-item-id',
+        name: 'checkmate-51-proof.png',
+        contentType: 'image/png',
+        bytes: Buffer.from('png-bytes'),
+      }),
+    ).rejects.toMatchObject<Partial<PlaneAdapterError>>({
+      kind: 'manual_attention',
+      message: 'Plane has a matching attachment slot that is not finalized',
+    })
+    expect(fetchImplementation).toHaveBeenCalledTimes(1)
+  })
+
+  it('fails closed after a reserved attachment slot cannot upload', async () => {
+    const fetchImplementation = jest
+      .fn()
+      .mockResolvedValueOnce(Response.json({results: []}))
+      .mockResolvedValueOnce(
+        Response.json(
+          {
+            asset_id: 'asset-id',
+            attachment: {id: 'attachment-id'},
+            upload_data: {
+              url: 'https://objects.example/upload',
+              fields: {key: 'plane/object-key'},
+            },
+          },
+          {status: 201},
+        ),
+      )
+      .mockResolvedValueOnce(new Response(null, {status: 503}))
+    const adapter = createPlaneAdapter(environment, fetchImplementation)
+
+    await expect(
+      adapter.ensureAttachment({
+        workItemId: 'work-item-id',
+        name: 'checkmate-51-proof.png',
+        contentType: 'image/png',
+        bytes: Buffer.from('png-bytes'),
+      }),
+    ).rejects.toMatchObject<Partial<PlaneAdapterError>>({
+      kind: 'manual_attention',
+    })
+  })
 })

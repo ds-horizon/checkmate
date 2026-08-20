@@ -445,6 +445,7 @@ describe('AddResultDialog', () => {
         currAttachments={[]}
         resultRevisionCommandsEnabled
         planeDefectCreationEnabled
+        planeEvidenceCopyEnabled
       />,
     )
 
@@ -455,7 +456,10 @@ describe('AddResultDialog', () => {
     expect(
       screen.getByRole('checkbox', {name: 'Create Plane defect'}),
     ).toBeChecked()
-    expect(screen.getByText(/BIZ Development intake/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/Copies this result note and eligible screenshots/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/Plane keeps its copy/)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', {name: 'Save result'}))
 
@@ -463,6 +467,40 @@ describe('AddResultDialog', () => {
       expect.objectContaining({createPlaneDefect: true}),
       expect.objectContaining({action: '/api/v1/run/save-test-result'}),
     )
+  })
+
+  it('does not claim that evidence is copied when the capability is disabled', () => {
+    render(
+      <AddResultDialog
+        getSelectedRows={() => [
+          {testId: 42, testRunMapId: 17, resultMapCount: 1},
+        ]}
+        runId={7}
+        variant="runRowUpdate"
+        currStatus={TestStatusType.Failed}
+        currComment="Checkout fails"
+        currAttachments={[]}
+        resultRevisionCommandsEnabled
+        planeDefectCreationEnabled
+        planeEvidenceCopyEnabled={false}
+      />,
+    )
+
+    fireEvent.click(
+      screen.getByRole('button', {name: 'Edit result, current status Failed'}),
+    )
+
+    expect(
+      screen.getByRole('checkbox', {name: 'Create Plane defect'}),
+    ).toBeChecked()
+    expect(
+      screen.getByText(
+        'Creates a Plane defect after save. Result notes and screenshots remain in Checkmate.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(/Copies this result note and eligible screenshots/),
+    ).not.toBeInTheDocument()
   })
 
   it('requires evidence when the eligible Plane option remains selected', () => {

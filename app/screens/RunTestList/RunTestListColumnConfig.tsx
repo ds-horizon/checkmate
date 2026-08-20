@@ -23,6 +23,7 @@ import {
 import {TestListingColumns} from '../TestList/UploadTest/constants'
 import {AddResultDialog} from './AddResultDialog'
 import {ResultScreenshotCount} from './ResultAttachments'
+import {PlaneDefectStatus} from './PlaneDefectStatus'
 
 export const priorityMapping: {[key: string]: ReactNode} = {
   Critical: <DoubleArrowUpIcon stroke={'#f01000'} height={18} width={18} />,
@@ -193,6 +194,10 @@ export const RunTestListColumnConfig: ColumnDef<Tests>[] = [
           ) : (
             <span className="text-[11px] text-slate-400">No result note</span>
           )}
+          <PlaneDefectStatus
+            state={row.original.planeDefectState}
+            url={row.original.planeDefectUrl}
+          />
         </div>
       )
     },

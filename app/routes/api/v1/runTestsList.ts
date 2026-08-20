@@ -32,6 +32,20 @@ export interface Tests {
   sectionParentId: number | null
   sectionId: number
   screenshotCount: number
+  planeDefectState:
+    | 'intake_pending'
+    | 'intake_open'
+    | 'work_item_open'
+    | 'ready_for_retest'
+    | 'validated'
+    | 'resolved_before_sync'
+    | 'intake_rejected'
+    | 'canceled'
+    | 'superseded'
+    | 'orphaned'
+    | 'manual_attention'
+    | null
+  planeDefectUrl: string | null
 }
 
 export interface RunTestListResponseType {

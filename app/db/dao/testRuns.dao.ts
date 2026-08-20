@@ -17,6 +17,7 @@ import {
   tests,
 } from '@schema/tests'
 import {users} from '@schema/users'
+import {defectCycles} from '@schema/resultRevisions'
 import {like, or} from 'drizzle-orm'
 import {and, asc, count, desc, eq, inArray, sql, SQL} from 'drizzle-orm/sql'
 import {TestStatusType} from '~/dataController/types'
@@ -171,6 +172,16 @@ const TestRunsDao = {
             )),
             0
           )`.as('screenshotCount'),
+          planeDefectState: sql<string | null>`CASE
+            WHEN COUNT(DISTINCT ${testRunMap.testRunMapId}) = 1
+            THEN MAX(${defectCycles.state})
+            ELSE NULL
+          END`.as('planeDefectState'),
+          planeDefectUrl: sql<string | null>`CASE
+            WHEN COUNT(DISTINCT ${testRunMap.testRunMapId}) = 1
+            THEN MAX(${defectCycles.providerUrl})
+            ELSE NULL
+          END`.as('planeDefectUrl'),
           testId: testRunMap.testId,
           priority: priorityTable.priorityName,
           title: tests.title,
@@ -192,6 +203,13 @@ const TestRunsDao = {
         })
         .from(testRunMap)
         .leftJoin(users, eq(testRunMap.updatedBy, users.userId))
+        .leftJoin(
+          defectCycles,
+          and(
+            eq(defectCycles.testRunMapId, testRunMap.testRunMapId),
+            eq(defectCycles.activeMarker, 1),
+          ),
+        )
         .leftJoin(runs, eq(testRunMap.runId, runs.runId))
         .leftJoin(tests, eq(testRunMap.testId, tests.testId))
         .leftJoin(squads, eq(tests.squadId, squads.squadId))

@@ -3,6 +3,7 @@ import {and, desc, eq, inArray, isNull} from 'drizzle-orm'
 import {projects} from '@schema/projects'
 import {
   defectCycles,
+  integrationReconciliations,
   planeEvidenceDeliveries,
   resultCommands,
   resultNotifications,
@@ -106,7 +107,7 @@ const buildPlaneCycleActionIntent = ({
   status,
   comment,
 }: {
-  action: 'same_issue_reopen' | 'different_issue_superseded'
+  action: 'same_issue_reopen' | 'different_issue_superseded' | 'validated_pass'
   defectCycleId: number
   resultRevisionId: number
   workItemId: string
@@ -118,7 +119,9 @@ const buildPlaneCycleActionIntent = ({
   const actionText =
     action === 'same_issue_reopen'
       ? 'Checkmate retest failed for the same issue. Reopening for development.'
-      : 'Checkmate retest identified a different issue. This cycle was superseded and a new defect cycle was opened.'
+      : action === 'different_issue_superseded'
+      ? 'Checkmate retest identified a different issue. This cycle was superseded and a new defect cycle was opened.'
+      : 'Checkmate validated this defect with a human Passed result. Plane workflow state was not changed.'
   return {
     action,
     defectCycleId,
@@ -210,6 +213,7 @@ export const saveHumanResult = async (
         mapProjectId: testRunMap.projectId,
         isIncluded: testRunMap.isIncluded,
         currentComment: testRunMap.comment,
+        currentResultRevisionId: testRunMap.currentResultRevisionId,
         runId: runs.runId,
         runProjectId: runs.projectId,
         runStatus: runs.status,
@@ -384,8 +388,24 @@ export const saveHumanResult = async (
         providerWorkspaceId: defectCycles.providerWorkspaceId,
         providerProjectId: defectCycles.providerProjectId,
         providerWorkItemId: defectCycles.providerWorkItemId,
+        cycleTestRunMapId: defectCycles.testRunMapId,
+        cycleRunId: defectCycles.runId,
+        cycleTestId: defectCycles.testId,
+        cycleProjectId: defectCycles.projectId,
+        currentEvidenceRevisionId: defectCycles.currentEvidenceRevisionId,
+        evidenceTestRunMapId: resultRevisions.testRunMapId,
+        evidenceRunId: resultRevisions.runId,
+        evidenceTestId: resultRevisions.testId,
+        evidenceProjectId: resultRevisions.projectId,
       })
       .from(defectCycles)
+      .leftJoin(
+        resultRevisions,
+        eq(
+          resultRevisions.resultRevisionId,
+          defectCycles.currentEvidenceRevisionId,
+        ),
+      )
       .where(
         and(
           eq(defectCycles.testRunMapId, aggregate.testRunMapId),
@@ -394,6 +414,25 @@ export const saveHumanResult = async (
       )
       .limit(1)
       .for('update')
+
+    if (
+      activeCycle &&
+      (activeCycle.cycleTestRunMapId !== aggregate.testRunMapId ||
+        activeCycle.cycleRunId !== aggregate.mapRunId ||
+        activeCycle.cycleTestId !== aggregate.mapTestId ||
+        activeCycle.cycleProjectId !== aggregate.mapProjectId ||
+        activeCycle.currentEvidenceRevisionId !==
+          aggregate.currentResultRevisionId ||
+        activeCycle.evidenceTestRunMapId !== aggregate.testRunMapId ||
+        activeCycle.evidenceRunId !== aggregate.mapRunId ||
+        activeCycle.evidenceTestId !== aggregate.mapTestId ||
+        activeCycle.evidenceProjectId !== aggregate.mapProjectId)
+    ) {
+      throw new ResultCommandError(
+        'Linked defect cycle requires reconciliation before saving',
+        409,
+      )
+    }
 
     const isFailedReadyRetest =
       command.status === TestStatusType.Failed &&
@@ -508,6 +547,27 @@ export const saveHumanResult = async (
         )
     }
 
+    const resolveCycleReconciliations = async (
+      cycleId: number,
+      resolutionNote: string,
+    ) => {
+      const resolvedOn = new Date()
+      await trx
+        .update(integrationReconciliations)
+        .set({state: 'resolved', resolvedOn, resolutionNote})
+        .where(
+          and(
+            eq(integrationReconciliations.aggregateType, 'defect_cycle'),
+            eq(integrationReconciliations.aggregateId, cycleId),
+            isNull(integrationReconciliations.resolvedOn),
+          ),
+        )
+    }
+
+    const planeCycleActionIntents: NonNullable<
+      ResultRevisionCommittedPayload['planeCycleActionIntent']
+    >[] = []
+
     if (command.status === TestStatusType.Passed) {
       if (activeCycle) {
         defectCycleId = activeCycle.defectCycleId
@@ -534,13 +594,32 @@ export const saveHumanResult = async (
           )
         }
         await invalidateRetestNotifications(activeCycle.defectCycleId)
+        await resolveCycleReconciliations(
+          activeCycle.defectCycleId,
+          'Human Passed result validated the defect cycle',
+        )
+        if (
+          activeCycle.provider === PLANE_PROVIDER &&
+          activeCycle.providerWorkspaceId === PLANE_WORKSPACE_ID &&
+          activeCycle.providerProjectId === PLANE_PROJECT_ID &&
+          activeCycle.providerWorkItemId
+        ) {
+          planeCycleActionIntents.push(
+            buildPlaneCycleActionIntent({
+              action: 'validated_pass',
+              defectCycleId: activeCycle.defectCycleId,
+              resultRevisionId,
+              workItemId: activeCycle.providerWorkItemId,
+              revisionNumber,
+              status: command.status,
+              comment: effectiveComment,
+            }),
+          )
+        }
       }
     }
 
     let planeDefectIntent: ResultRevisionCommittedPayload['planeDefectIntent']
-    const planeCycleActionIntents: NonNullable<
-      ResultRevisionCommittedPayload['planeCycleActionIntent']
-    >[] = []
     const planeEvidenceIntents: NonNullable<
       ResultRevisionCommittedPayload['planeEvidenceIntent']
     >[] = []
@@ -590,6 +669,10 @@ export const saveHumanResult = async (
           )
         }
         await invalidateRetestNotifications(activeCycle.defectCycleId)
+        await resolveCycleReconciliations(
+          activeCycle.defectCycleId,
+          'Human retest superseded the defect cycle',
+        )
         targetActiveCycle = undefined
       }
 

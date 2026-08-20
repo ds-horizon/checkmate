@@ -23,6 +23,7 @@ import {
   readPlaneAdapterConfig,
   sanitizePlaneError,
 } from './planeAdapter'
+import {reconcilePlaneRetestReadiness} from './planeReconciliation'
 import {isPlaneRetestReadinessEnabled} from './resultRevisionFlags'
 
 const PLANE_PROVIDER = 'plane'
@@ -513,6 +514,13 @@ export const processPlaneRetestReadinessInbox = async ({
         const readinessOutcome = await applyPlaneRetestReadiness({
           workItemId: workItem.workItemId,
           stateId: workItem.stateId,
+          config,
+          now: now(),
+        })
+        await reconcilePlaneRetestReadiness({
+          workItemId: workItem.workItemId,
+          authoritativeStateId: workItem.stateId,
+          readinessOutcome,
           config,
           now: now(),
         })

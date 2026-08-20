@@ -266,6 +266,15 @@ export const planeDefectCycleStore: PlaneDefectCycleStore = {
           }
     }
 
+    if (intent.action === 'validated_pass') {
+      return cycle.state === 'validated'
+        ? {outcome: 'reserved'}
+        : {
+            outcome: 'manual_attention',
+            reason: `Plane validation notice found cycle state: ${cycle.state}`,
+          }
+    }
+
     if (
       cycle.reopenRevisionId !== intent.resultRevisionId ||
       cycle.state !== 'work_item_open'
@@ -287,7 +296,7 @@ export const planeDefectCycleStore: PlaneDefectCycleStore = {
   },
 
   completeCycleAction: async (intent) => {
-    if (intent.action === 'different_issue_superseded') return true
+    if (intent.action !== 'same_issue_reopen') return true
     const result = await dbClient
       .update(defectCycles)
       .set({reopenState: 'delivered'})

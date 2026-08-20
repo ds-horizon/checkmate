@@ -49,7 +49,7 @@ export type PlaneEvidenceIntent = {
 }
 
 export type PlaneCycleActionIntent = {
-  action: 'same_issue_reopen' | 'different_issue_superseded'
+  action: 'same_issue_reopen' | 'different_issue_superseded' | 'validated_pass'
   defectCycleId: number
   resultRevisionId: number
   workItemId: string

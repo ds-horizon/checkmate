@@ -1,6 +1,7 @@
 const transaction = jest.fn()
 const mockClaimIntegrationInboxEvents = jest.fn()
 const mockFinalizeIntegrationInboxEvent = jest.fn()
+const mockReconcilePlaneRetestReadiness = jest.fn()
 
 jest.mock('~/db/client', () => ({
   dbClient: {transaction, select: jest.fn()},
@@ -12,6 +13,10 @@ jest.mock('../integrationInbox', () => ({
   finalizeIntegrationInboxEvent: mockFinalizeIntegrationInboxEvent,
   finalizeIntegrationPollCursor: jest.fn(),
   recordVerifiedIntegrationEvent: jest.fn(),
+}))
+
+jest.mock('../planeReconciliation', () => ({
+  reconcilePlaneRetestReadiness: mockReconcilePlaneRetestReadiness,
 }))
 
 import {
@@ -74,6 +79,8 @@ describe('Plane retest readiness', () => {
     transaction.mockReset()
     mockClaimIntegrationInboxEvents.mockReset()
     mockFinalizeIntegrationInboxEvent.mockReset()
+    mockReconcilePlaneRetestReadiness.mockReset()
+    mockReconcilePlaneRetestReadiness.mockResolvedValue('matched')
   })
 
   it('requires an exact configured Done-state id', () => {
@@ -569,6 +576,13 @@ describe('Plane retest readiness', () => {
       }),
     )
     expect(getWorkItem).toHaveBeenCalledWith('work-item-id')
+    expect(mockReconcilePlaneRetestReadiness).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workItemId: 'work-item-id',
+        authoritativeStateId: 'not-done-anymore',
+        readinessOutcome: 'no_op',
+      }),
+    )
     expect(mockFinalizeIntegrationInboxEvent).toHaveBeenCalledWith(
       expect.objectContaining({integrationInboxId: 93, outcome: 'no_op'}),
     )

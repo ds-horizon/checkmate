@@ -302,6 +302,36 @@ describe('Plane defect cycle persistence', () => {
       retryAfterMs: 5_000,
     })
   })
+
+  it('reserves an informational validation notice only for the validated linked cycle', async () => {
+    directSelect.mockReturnValue(
+      createSelectQuery([
+        {
+          state: 'validated',
+          provider: 'plane',
+          providerWorkspaceId: config.workspaceId,
+          providerProjectId: config.projectId,
+          providerWorkItemId: 'work-item-id',
+          reopenState: null,
+          reopenRevisionId: null,
+        },
+      ]),
+    )
+
+    await expect(
+      planeDefectCycleStore.reserveCycleAction(
+        {
+          action: 'validated_pass',
+          defectCycleId: 73,
+          resultRevisionId: 42,
+          workItemId: 'work-item-id',
+          marker: '<!-- checkmate-cycle-action:validated_pass:73:42 -->',
+          commentHtml: '<p>Validated.</p>',
+        },
+        config,
+      ),
+    ).resolves.toEqual({outcome: 'reserved'})
+  })
 })
 
 describe('Plane defect delivery adapter', () => {
@@ -423,6 +453,41 @@ describe('Plane defect delivery adapter', () => {
       workItemId: 'work-item-id',
       stateId: 'todo-state-id',
     })
+    expect(cycleStore.completeCycleAction).toHaveBeenCalledWith(actionIntent)
+  })
+
+  it('comments on a human validation without changing Plane workflow state', async () => {
+    const cycleStore = createCycleStore()
+    const planeAdapter = createAdapter()
+    const actionIntent = {
+      action: 'validated_pass' as const,
+      defectCycleId: 73,
+      resultRevisionId: 42,
+      workItemId: 'work-item-id',
+      marker: '<!-- checkmate-cycle-action:validated_pass:73:42 -->',
+      commentHtml: '<p>Checkmate validated this defect.</p>',
+    }
+    const adapter = createPlaneResultDeliveryAdapter({
+      config,
+      planeAdapter,
+      cycleStore,
+      reopenStateId: 'todo-state-id',
+    })
+
+    await expect(
+      adapter.deliverResultRevision({
+        ...event,
+        eventType: 'plane_cycle_action_requested',
+        payload: {...event.payload, planeCycleActionIntent: actionIntent},
+      }),
+    ).resolves.toEqual({outcome: 'delivered'})
+
+    expect(planeAdapter.ensureComment).toHaveBeenCalledWith({
+      workItemId: 'work-item-id',
+      marker: actionIntent.marker,
+      commentHtml: actionIntent.commentHtml,
+    })
+    expect(planeAdapter.ensureWorkItemState).not.toHaveBeenCalled()
     expect(cycleStore.completeCycleAction).toHaveBeenCalledWith(actionIntent)
   })
 

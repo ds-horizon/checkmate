@@ -16,6 +16,7 @@ const createQuery = (result: QueryResult) => {
   for (const method of [
     'from',
     'innerJoin',
+    'leftJoin',
     'where',
     'for',
     'limit',
@@ -43,6 +44,7 @@ const aggregate = {
   mapProjectId: 5,
   isIncluded: true,
   currentComment: null,
+  currentResultRevisionId: 40,
   runId: 7,
   runProjectId: 5,
   runStatus: 'Active',
@@ -50,6 +52,24 @@ const aggregate = {
   projectCreatedBy: 23,
   testProjectId: 5,
   testTitle: 'Checkout completes successfully',
+}
+
+const activeCycle = {
+  defectCycleId: 73,
+  state: 'ready_for_retest',
+  provider: 'plane',
+  providerWorkspaceId: 'e36dfd86-953a-4e33-a410-856208893bb9',
+  providerProjectId: '67726ee5-7d0c-4656-8bc8-b2f8a959d5da',
+  providerWorkItemId: 'work-item-id',
+  cycleTestRunMapId: 17,
+  cycleRunId: 7,
+  cycleTestId: 11,
+  cycleProjectId: 5,
+  currentEvidenceRevisionId: 40,
+  evidenceTestRunMapId: 17,
+  evidenceRunId: 7,
+  evidenceTestId: 11,
+  evidenceProjectId: 5,
 }
 
 const createTransaction = ({
@@ -422,7 +442,11 @@ describe('result commands', () => {
         [{testRunMapId: 17}],
         [{userId: 23, role: 'user'}],
         [],
-        [{defectCycleId: 73}],
+        [
+          {
+            ...activeCycle,
+          },
+        ],
       ],
     })
     transaction.mockImplementation(async (callback) => callback(fake.trx))
@@ -433,7 +457,7 @@ describe('result commands', () => {
       expect.objectContaining({defectCycleId: 73, replayed: false}),
     )
 
-    expect(fake.update).toHaveBeenCalledTimes(4)
+    expect(fake.update).toHaveBeenCalledTimes(5)
     expect(fake.updatedValues).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -443,6 +467,11 @@ describe('result commands', () => {
         }),
         {defectCycleId: 73},
         {invalidatedOn: expect.any(Date)},
+        expect.objectContaining({
+          state: 'resolved',
+          resolvedOn: expect.any(Date),
+          resolutionNote: 'Human Passed result validated the defect cycle',
+        }),
       ]),
     )
     expect(fake.insertedValues[2]).toEqual(
@@ -452,10 +481,49 @@ describe('result commands', () => {
     )
     expect(fake.insertedValues[3]).toEqual(
       expect.objectContaining({
+        eventType: 'plane_cycle_action_requested',
+        payload: expect.objectContaining({
+          planeCycleActionIntent: expect.objectContaining({
+            action: 'validated_pass',
+            defectCycleId: 73,
+            resultRevisionId: 41,
+            workItemId: 'work-item-id',
+          }),
+        }),
+      }),
+    )
+    expect(fake.insertedValues[4]).toEqual(
+      expect.objectContaining({
         outcome: expect.objectContaining({defectCycleId: 73}),
       }),
     )
-    expect(fake.insertedValues).toHaveLength(4)
+    expect(fake.insertedValues).toHaveLength(5)
+  })
+
+  it('keeps a critical cycle-integrity mismatch open instead of validating it', async () => {
+    const fake = createTransaction({
+      selectResults: [
+        [aggregate],
+        [],
+        [{testRunMapId: 17}],
+        [{userId: 23, role: 'user'}],
+        [],
+        [{...activeCycle, evidenceProjectId: 999}],
+      ],
+    })
+    transaction.mockImplementation(async (callback) => callback(fake.trx))
+
+    await expect(
+      saveHumanResult({...command, status: TestStatusType.Passed}),
+    ).rejects.toEqual(
+      expect.objectContaining({
+        message: 'Linked defect cycle requires reconciliation before saving',
+        status: 409,
+      }),
+    )
+
+    expect(fake.insert).not.toHaveBeenCalled()
+    expect(fake.update).not.toHaveBeenCalled()
   })
 
   it('requires an explicit issue decision when a ready retest fails', async () => {
@@ -468,12 +536,8 @@ describe('result commands', () => {
         [],
         [
           {
+            ...activeCycle,
             defectCycleId: 72,
-            state: 'ready_for_retest',
-            provider: 'plane',
-            providerWorkspaceId: 'e36dfd86-953a-4e33-a410-856208893bb9',
-            providerProjectId: '67726ee5-7d0c-4656-8bc8-b2f8a959d5da',
-            providerWorkItemId: 'work-item-id',
           },
         ],
       ],
@@ -496,12 +560,8 @@ describe('result commands', () => {
         [],
         [
           {
+            ...activeCycle,
             defectCycleId: 72,
-            state: 'ready_for_retest',
-            provider: 'plane',
-            providerWorkspaceId: 'e36dfd86-953a-4e33-a410-856208893bb9',
-            providerProjectId: '67726ee5-7d0c-4656-8bc8-b2f8a959d5da',
-            providerWorkItemId: 'work-item-id',
           },
         ],
         [],
@@ -555,12 +615,8 @@ describe('result commands', () => {
         [],
         [
           {
+            ...activeCycle,
             defectCycleId: 72,
-            state: 'ready_for_retest',
-            provider: 'plane',
-            providerWorkspaceId: 'e36dfd86-953a-4e33-a410-856208893bb9',
-            providerProjectId: '67726ee5-7d0c-4656-8bc8-b2f8a959d5da',
-            providerWorkItemId: 'work-item-id',
           },
         ],
         [{cycleNumber: 1}],
@@ -586,6 +642,13 @@ describe('result commands', () => {
     expect(fake.updatedValues).toContainEqual({
       invalidatedOn: expect.any(Date),
     })
+    expect(fake.updatedValues).toContainEqual(
+      expect.objectContaining({
+        state: 'resolved',
+        resolvedOn: expect.any(Date),
+        resolutionNote: 'Human retest superseded the defect cycle',
+      }),
+    )
     expect(fake.insertedValues).toContainEqual(
       expect.objectContaining({
         testRunMapId: 17,
@@ -671,10 +734,8 @@ describe('result commands', () => {
         [],
         [
           {
-            defectCycleId: 73,
-            provider: 'plane',
-            providerWorkspaceId: 'e36dfd86-953a-4e33-a410-856208893bb9',
-            providerProjectId: '67726ee5-7d0c-4656-8bc8-b2f8a959d5da',
+            ...activeCycle,
+            state: 'work_item_open',
           },
         ],
       ],

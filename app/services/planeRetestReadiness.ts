@@ -1,6 +1,10 @@
 import {createHash} from 'node:crypto'
-import {and, asc, eq, gt, inArray, isNotNull} from 'drizzle-orm'
-import {defectCycles, resultNotifications, resultRevisions} from '@schema/resultRevisions'
+import {and, asc, eq, gt, inArray, isNotNull, isNull} from 'drizzle-orm'
+import {
+  defectCycles,
+  resultNotifications,
+  resultRevisions,
+} from '@schema/resultRevisions'
 import {runs, testRunMap} from '@schema/runs'
 import {tests} from '@schema/tests'
 import {users} from '@schema/users'
@@ -120,7 +124,11 @@ export const listPlaneRetestReadinessPollTargets = async ({
     eq(defectCycles.providerWorkspaceId, config.workspaceId),
     eq(defectCycles.providerProjectId, config.projectId),
     eq(defectCycles.activeMarker, 1),
-    inArray(defectCycles.state, ['intake_open', 'work_item_open']),
+    inArray(defectCycles.state, [
+      'intake_open',
+      'work_item_open',
+      'ready_for_retest',
+    ]),
     isNotNull(defectCycles.providerWorkItemId),
   ]
   if (cursor !== null) conditions.push(gt(defectCycles.defectCycleId, cursor))
@@ -201,8 +209,6 @@ export const applyPlaneRetestReadiness = async ({
   config: PlaneRetestReadinessConfig
   now?: Date
 }): Promise<PlaneRetestReadinessApplyOutcome> => {
-  if (stateId !== config.doneStateId) return 'no_op'
-
   return dbClient.transaction(async (trx) => {
     const [cycle] = await trx
       .select({
@@ -215,6 +221,8 @@ export const applyPlaneRetestReadiness = async ({
         state: defectCycles.state,
         currentEvidenceRevisionId: defectCycles.currentEvidenceRevisionId,
         readinessGeneration: defectCycles.readinessGeneration,
+        reopenState: defectCycles.reopenState,
+        reopenRevisionId: defectCycles.reopenRevisionId,
       })
       .from(defectCycles)
       .where(correlatedCycleConditions({workItemId, config}))
@@ -222,7 +230,9 @@ export const applyPlaneRetestReadiness = async ({
       .for('update')
     if (
       !cycle ||
-      (cycle.state !== 'intake_open' && cycle.state !== 'work_item_open')
+      !['intake_open', 'work_item_open', 'ready_for_retest'].includes(
+        cycle.state,
+      )
     ) {
       return 'no_op'
     }
@@ -263,7 +273,9 @@ export const applyPlaneRetestReadiness = async ({
         projectId: resultRevisions.projectId,
       })
       .from(resultRevisions)
-      .where(eq(resultRevisions.resultRevisionId, cycle.currentEvidenceRevisionId))
+      .where(
+        eq(resultRevisions.resultRevisionId, cycle.currentEvidenceRevisionId),
+      )
       .limit(1)
       .for('update')
     if (
@@ -273,6 +285,68 @@ export const applyPlaneRetestReadiness = async ({
       revision.testId !== mapping.testId ||
       revision.projectId !== mapping.projectId
     ) {
+      return 'no_op'
+    }
+
+    if (cycle.state === 'ready_for_retest') {
+      if (stateId === config.doneStateId) return 'no_op'
+      const cycleUpdate = await trx
+        .update(defectCycles)
+        .set({
+          state: 'work_item_open',
+          providerStateId: stateId,
+          lastProviderObservedOn: now,
+        })
+        .where(eq(defectCycles.defectCycleId, cycle.defectCycleId))
+      if (cycleUpdate[0].affectedRows !== 1) {
+        throw new Error(
+          'Plane retest readiness withdrawal did not update exactly one cycle',
+        )
+      }
+      await trx
+        .update(resultNotifications)
+        .set({invalidatedOn: now})
+        .where(
+          and(
+            eq(resultNotifications.defectCycleId, cycle.defectCycleId),
+            eq(resultNotifications.channel, 'checkmate_retest_ready'),
+            isNull(resultNotifications.invalidatedOn),
+          ),
+        )
+      return 'applied'
+    }
+
+    if (
+      cycle.reopenState === 'pending' ||
+      cycle.reopenState === 'manual_attention'
+    ) {
+      return 'no_op'
+    }
+    if (cycle.reopenState === 'delivered') {
+      if (stateId === config.doneStateId) return 'no_op'
+      const reopenUpdate = await trx
+        .update(defectCycles)
+        .set({
+          reopenState: 'observed',
+          providerStateId: stateId,
+          lastProviderObservedOn: now,
+        })
+        .where(
+          and(
+            eq(defectCycles.defectCycleId, cycle.defectCycleId),
+            eq(defectCycles.reopenState, 'delivered'),
+            ...(cycle.reopenRevisionId === null
+              ? []
+              : [eq(defectCycles.reopenRevisionId, cycle.reopenRevisionId)]),
+          ),
+        )
+      if (reopenUpdate[0].affectedRows !== 1) {
+        throw new Error('Plane reopen observation lost its revision fence')
+      }
+      return 'applied'
+    }
+    if (stateId !== config.doneStateId) return 'no_op'
+    if (cycle.reopenState && cycle.reopenState !== 'observed') {
       return 'no_op'
     }
 
@@ -302,22 +376,28 @@ export const applyPlaneRetestReadiness = async ({
               eq(users.status, 'active'),
             ),
           )
-          .where(eq(resultRevisions.resultRevisionId, revision.resultRevisionId))
+          .where(
+            eq(resultRevisions.resultRevisionId, revision.resultRevisionId),
+          )
           .limit(1)
           .for('update')
 
-    const [assignedRecipient] = openingRecipient || evidenceRecipient
-      ? []
-      : await trx
-          .select({userId: users.userId})
-          .from(tests)
-          .innerJoin(
-            users,
-            and(eq(users.userId, tests.assignedTo), eq(users.status, 'active')),
-          )
-          .where(eq(tests.testId, mapping.testId))
-          .limit(1)
-          .for('update')
+    const [assignedRecipient] =
+      openingRecipient || evidenceRecipient
+        ? []
+        : await trx
+            .select({userId: users.userId})
+            .from(tests)
+            .innerJoin(
+              users,
+              and(
+                eq(users.userId, tests.assignedTo),
+                eq(users.status, 'active'),
+              ),
+            )
+            .where(eq(tests.testId, mapping.testId))
+            .limit(1)
+            .for('update')
 
     const recipient = openingRecipient ?? evidenceRecipient ?? assignedRecipient
     if (!recipient) return 'manual_attention'
@@ -399,10 +479,12 @@ export const processPlaneRetestReadinessInbox = async ({
   adapter: PlaneAdapter
   limit?: number
   now?: () => Date
-}): Promise<Pick<
-  PlaneRetestReadinessBatchSummary,
-  'applied' | 'noOp' | 'retryDue' | 'manualAttention' | 'staleLeases'
->> => {
+}): Promise<
+  Pick<
+    PlaneRetestReadinessBatchSummary,
+    'applied' | 'noOp' | 'retryDue' | 'manualAttention' | 'staleLeases'
+  >
+> => {
   const summary = {
     applied: 0,
     noOp: 0,
@@ -443,10 +525,7 @@ export const processPlaneRetestReadinessInbox = async ({
       }
     } catch (caught) {
       error = sanitizePlaneError(caught)
-      if (
-        caught instanceof PlaneAdapterError &&
-        caught.kind !== 'retryable'
-      ) {
+      if (caught instanceof PlaneAdapterError && caught.kind !== 'retryable') {
         outcome = 'manual_attention'
       } else {
         outcome = 'retry_due'

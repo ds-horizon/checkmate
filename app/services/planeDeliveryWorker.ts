@@ -1,4 +1,5 @@
 import type {
+  PlaneCycleActionIntent,
   PlaneDefectIntent,
   ResultRevisionCommittedPayload,
 } from '@schema/resultRevisions'
@@ -22,6 +23,7 @@ const MIN_LEASE_SAFETY_MS = 5_000
 
 export type PlaneDeliveryPayload = ResultRevisionCommittedPayload & {
   planeDefectIntent?: PlaneDefectIntent
+  planeCycleActionIntent?: PlaneCycleActionIntent
 }
 
 export type PlaneResultDeliveryAdapter = {
@@ -124,8 +126,9 @@ export const runPlaneDeliveryBatch = async ({
     }
     const defectIntent = event.payload.planeDefectIntent
     const evidenceIntent = event.payload.planeEvidenceIntent
+    const actionIntent = event.payload.planeCycleActionIntent
 
-    if (!defectIntent?.create && !evidenceIntent) {
+    if (!defectIntent?.create && !evidenceIntent && !actionIntent) {
       const finalized = await finalizeResultOutboxEvent({
         resultOutboxId: event.resultOutboxId,
         leaseToken: event.leaseToken,

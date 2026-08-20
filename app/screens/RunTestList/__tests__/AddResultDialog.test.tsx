@@ -531,6 +531,83 @@ describe('AddResultDialog', () => {
     expect(submit).not.toHaveBeenCalled()
   })
 
+  it('requires an explicit same-or-different issue path for a failed ready retest', () => {
+    ;(cryptoGlobal.randomUUID as jest.Mock).mockReturnValue(
+      '2fc3cc24-4149-45c4-a8e8-5d9c62c71c36',
+    )
+    render(
+      <AddResultDialog
+        getSelectedRows={() => [
+          {testId: 42, testRunMapId: 17, resultMapCount: 1},
+        ]}
+        runId={7}
+        variant="runRowUpdate"
+        currStatus={TestStatusType.Failed}
+        currComment="A different checkout error appeared"
+        currAttachments={[]}
+        resultRevisionCommandsEnabled
+        planeDefectCreationEnabled
+        planeDefectState="ready_for_retest"
+      />,
+    )
+
+    fireEvent.click(
+      screen.getByRole('button', {name: 'Edit result, current status Failed'}),
+    )
+    expect(screen.getByRole('radio', {name: 'Same issue'})).toBeChecked()
+    fireEvent.click(screen.getByRole('radio', {name: 'Different issue'}))
+    fireEvent.click(screen.getByRole('button', {name: 'Save result'}))
+
+    expect(submit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        createPlaneDefect: true,
+        retestIssue: 'different_issue',
+      }),
+      expect.objectContaining({action: '/api/v1/run/save-test-result'}),
+    )
+  })
+
+  it('keeps same-issue reopening available when new defect creation is disabled', () => {
+    ;(cryptoGlobal.randomUUID as jest.Mock).mockReturnValue(
+      '2fc3cc24-4149-45c4-a8e8-5d9c62c71c36',
+    )
+    render(
+      <AddResultDialog
+        getSelectedRows={() => [
+          {testId: 42, testRunMapId: 17, resultMapCount: 1},
+        ]}
+        runId={7}
+        variant="runRowUpdate"
+        currStatus={TestStatusType.Failed}
+        currComment="The original checkout error returned"
+        currAttachments={[]}
+        resultRevisionCommandsEnabled
+        planeDefectCreationEnabled={false}
+        planeDefectState="ready_for_retest"
+      />,
+    )
+
+    fireEvent.click(
+      screen.getByRole('button', {name: 'Edit result, current status Failed'}),
+    )
+
+    expect(screen.getByRole('radio', {name: 'Same issue'})).toBeChecked()
+    expect(screen.getByRole('radio', {name: 'Different issue'})).toBeDisabled()
+    expect(
+      screen.getByText('New Plane defect creation is currently disabled.'),
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', {name: 'Save result'}))
+
+    expect(submit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        createPlaneDefect: true,
+        retestIssue: 'same_issue',
+      }),
+      expect.objectContaining({action: '/api/v1/run/save-test-result'}),
+    )
+  })
+
   it('reuses the command ID when an identical save is retried', async () => {
     const randomUUID = (cryptoGlobal.randomUUID as jest.Mock)
       .mockReturnValueOnce('2fc3cc24-4149-45c4-a8e8-5d9c62c71c36')

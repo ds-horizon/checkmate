@@ -8,6 +8,7 @@ import {CustomDialog} from '~/components/Dialog/Dialog'
 import {Button} from '~/ui/button'
 import {Checkbox} from '~/ui/checkbox'
 import {DialogClose, DialogDescription, DialogTitle} from '~/ui/dialog'
+import {RadioGroup, RadioGroupItem} from '~/ui/radio-group'
 import {Textarea} from '~/ui/textarea'
 import {useToast} from '~/ui/use-toast'
 import {getStatusColor, getStatusTextColor} from '../TestDetail/util'
@@ -47,6 +48,19 @@ interface AddResultsDialogProps {
   resultRevisionCommandsEnabled?: boolean
   planeDefectCreationEnabled?: boolean
   planeEvidenceCopyEnabled?: boolean
+  planeDefectState?:
+    | 'intake_pending'
+    | 'intake_open'
+    | 'work_item_open'
+    | 'ready_for_retest'
+    | 'validated'
+    | 'resolved_before_sync'
+    | 'intake_rejected'
+    | 'canceled'
+    | 'superseded'
+    | 'orphaned'
+    | 'manual_attention'
+    | null
 }
 
 interface HistoryResponse {
@@ -79,6 +93,7 @@ export const AddResultDialog = ({
   resultRevisionCommandsEnabled = false,
   planeDefectCreationEnabled = false,
   planeEvidenceCopyEnabled = false,
+  planeDefectState = null,
 }: AddResultsDialogProps) => {
   const updateStatusFetcher = useFetcher<any>()
   const [status, setStatus] = useState(currStatus ?? '')
@@ -97,6 +112,9 @@ export const AddResultDialog = ({
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [createPlaneDefect, setCreatePlaneDefect] = useState(false)
+  const [retestIssue, setRetestIssue] = useState<
+    'same_issue' | 'different_issue'
+  >('same_issue')
   const [removedExistingKeys, setRemovedExistingKeys] = useState<string[]>([])
   const {toast} = useToast()
   const sessionIdRef = useRef(0)
@@ -119,8 +137,15 @@ export const AddResultDialog = ({
     planeDefectCreationEnabled &&
     variant !== 'bulkUpdate' &&
     (status === TestStatusType.Failed || status === TestStatusType.Retest)
+  const isFailedReadyRetest =
+    resultRevisionCommandsEnabled &&
+    variant !== 'bulkUpdate' &&
+    status === TestStatusType.Failed &&
+    planeDefectState === 'ready_for_retest'
+  const isPlaneActionEligible = isPlaneDefectEligible || isFailedReadyRetest
   const isPlaneEvidenceCopyEligible =
-    isPlaneDefectEligible && planeEvidenceCopyEnabled
+    isPlaneActionEligible && planeEvidenceCopyEnabled
+  const shouldCreatePlaneDefect = isFailedReadyRetest || createPlaneDefect
 
   const revokeDraftPreviewUrls = (draftAttachments: ResultAttachment[]) => {
     draftAttachments.forEach((attachment) => {
@@ -207,6 +232,7 @@ export const AddResultDialog = ({
           (currStatus === TestStatusType.Failed ||
             currStatus === TestStatusType.Retest),
       )
+      setRetestIssue('same_issue')
       setComment(currComment ?? '')
       setInitialAttachments(currAttachments ?? [])
       if (shouldLoadExistingAttachments) void loadExistingAttachments()
@@ -468,12 +494,14 @@ export const AddResultDialog = ({
       .map((attachment) => attachment.key)
       .filter((key): key is string => Boolean(key))
     if (
-      createPlaneDefect &&
+      shouldCreatePlaneDefect &&
       comment.trim() === '' &&
       attachmentKeys.length === 0
     ) {
       setSaveError(
-        'Add a result note or screenshot before creating a Plane defect.',
+        isFailedReadyRetest
+          ? 'Add a result note or screenshot before updating the linked Plane defect.'
+          : 'Add a result note or screenshot before creating a Plane defect.',
       )
       return
     }
@@ -505,7 +533,8 @@ export const AddResultDialog = ({
         status,
         comment,
         attachmentKeys: [...attachmentKeys].sort(),
-        createPlaneDefect,
+        createPlaneDefect: shouldCreatePlaneDefect,
+        ...(isFailedReadyRetest ? {retestIssue} : {}),
       })
       if (
         resultCommandIdRef.current === null ||
@@ -525,7 +554,8 @@ export const AddResultDialog = ({
           status,
           comment,
           attachmentKeys,
-          createPlaneDefect,
+          createPlaneDefect: shouldCreatePlaneDefect,
+          ...(isFailedReadyRetest ? {retestIssue} : {}),
         },
         {
           method: 'PUT',
@@ -781,31 +811,87 @@ export const AddResultDialog = ({
             </p>
           </div>
 
-          {isPlaneDefectEligible && (
+          {isPlaneActionEligible && (
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
-              <div className="flex min-h-12 items-start gap-3">
-                <Checkbox
-                  id={`${fieldId}-create-plane-defect`}
-                  checked={createPlaneDefect}
-                  onCheckedChange={(checked) =>
-                    setCreatePlaneDefect(checked === true)
-                  }
-                  className="mt-0.5"
-                />
-                <div className="space-y-1">
-                  <label
-                    htmlFor={`${fieldId}-create-plane-defect`}
-                    className="cursor-pointer text-sm font-semibold text-slate-800"
+              {isFailedReadyRetest ? (
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-800">
+                      What failed in this retest?
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                      This choice controls whether Checkmate reopens the linked
+                      Plane ticket or starts a separate defect.
+                    </p>
+                  </div>
+                  <RadioGroup
+                    value={retestIssue}
+                    onValueChange={(value) =>
+                      setRetestIssue(value as 'same_issue' | 'different_issue')
+                    }
+                    aria-label="Failed retest issue"
                   >
-                    Create Plane defect
-                  </label>
-                  <p className="text-xs leading-relaxed text-slate-500">
-                    {isPlaneEvidenceCopyEligible
-                      ? 'Copies this result note and eligible screenshots to the BIZ Development Plane project after save. Plane keeps its copy with the ticket.'
-                      : 'Creates a Plane defect after save. Result notes and screenshots remain in Checkmate.'}
-                  </p>
+                    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-slate-200 bg-white p-3">
+                      <RadioGroupItem
+                        value="same_issue"
+                        aria-label="Same issue"
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <span className="block text-sm font-semibold text-slate-800">
+                          Same issue
+                        </span>
+                        <span className="mt-0.5 block text-xs leading-relaxed text-slate-500">
+                          Reopen the linked Plane ticket to the configured Todo
+                          state and attach this evidence.
+                        </span>
+                      </span>
+                    </label>
+                    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-slate-200 bg-white p-3">
+                      <RadioGroupItem
+                        value="different_issue"
+                        aria-label="Different issue"
+                        disabled={!planeDefectCreationEnabled}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <span className="block text-sm font-semibold text-slate-800">
+                          Different issue
+                        </span>
+                        <span className="mt-0.5 block text-xs leading-relaxed text-slate-500">
+                          {planeDefectCreationEnabled
+                            ? 'Supersede this link and create a new Plane defect for the new failure.'
+                            : 'New Plane defect creation is currently disabled.'}
+                        </span>
+                      </span>
+                    </label>
+                  </RadioGroup>
                 </div>
-              </div>
+              ) : (
+                <div className="flex min-h-12 items-start gap-3">
+                  <Checkbox
+                    id={`${fieldId}-create-plane-defect`}
+                    checked={createPlaneDefect}
+                    onCheckedChange={(checked) =>
+                      setCreatePlaneDefect(checked === true)
+                    }
+                    className="mt-0.5"
+                  />
+                  <div className="space-y-1">
+                    <label
+                      htmlFor={`${fieldId}-create-plane-defect`}
+                      className="cursor-pointer text-sm font-semibold text-slate-800"
+                    >
+                      Create Plane defect
+                    </label>
+                    <p className="text-xs leading-relaxed text-slate-500">
+                      {isPlaneEvidenceCopyEligible
+                        ? 'Copies this result note and eligible screenshots to the BIZ Development Plane project after save. Plane keeps its copy with the ticket.'
+                        : 'Creates a Plane defect after save. Result notes and screenshots remain in Checkmate.'}
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

@@ -51,7 +51,9 @@ const readinessConfig = {
   destinationKey: 'plane:workspace-id:project-id',
 }
 
-const createAdapter = (getWorkItem: PlaneAdapter['getWorkItem']): PlaneAdapter => ({
+const createAdapter = (
+  getWorkItem: PlaneAdapter['getWorkItem'],
+): PlaneAdapter => ({
   getWorkItem,
   createIntake: async () => {
     throw new Error('createIntake is not used by readiness processing')
@@ -61,6 +63,9 @@ const createAdapter = (getWorkItem: PlaneAdapter['getWorkItem']): PlaneAdapter =
   },
   ensureAttachment: async () => {
     throw new Error('ensureAttachment is not used by readiness processing')
+  },
+  ensureWorkItemState: async () => {
+    throw new Error('ensureWorkItemState is not used by readiness processing')
   },
 })
 
@@ -94,6 +99,12 @@ describe('Plane retest readiness', () => {
   })
 
   it('fails closed for every observed state except the configured Done state', async () => {
+    const trx = {
+      select: jest.fn(() => createQuery([])),
+      update: jest.fn(),
+      insert: jest.fn(),
+    }
+    transaction.mockImplementation(async (callback) => callback(trx))
     await expect(
       applyPlaneRetestReadiness({
         workItemId: 'work-item-id',
@@ -101,104 +112,104 @@ describe('Plane retest readiness', () => {
         config: readinessConfig,
       }),
     ).resolves.toBe('no_op')
-    expect(transaction).not.toHaveBeenCalled()
+    expect(transaction).toHaveBeenCalledTimes(1)
   })
 
   it.each(['intake_open', 'work_item_open'] as const)(
     'atomically applies readiness from a %s cycle and queues one unread notification',
     async (cycleState) => {
-    const selectResults: QueryResult[] = [
-      [
-        {
-          defectCycleId: 73,
-          testRunMapId: 17,
-          runId: 7,
-          testId: 11,
-          projectId: 5,
-          openingRevisionId: 40,
-          state: cycleState,
-          currentEvidenceRevisionId: 41,
-          readinessGeneration: 2,
-        },
-      ],
-      [
-        {
-          testRunMapId: 17,
-          runId: 7,
-          testId: 11,
-          projectId: 5,
-          isIncluded: true,
-          currentResultRevisionId: 41,
-          runStatus: 'Active',
-        },
-      ],
-      [
-        {
-          resultRevisionId: 41,
-          testRunMapId: 17,
-          runId: 7,
-          testId: 11,
-          projectId: 5,
-        },
-      ],
-      [{userId: 23}],
-      [],
-    ]
-    const updatedValues: unknown[] = []
-    const notificationValues: unknown[] = []
-    const updateWhere = jest.fn(async () => [{affectedRows: 1}])
-    const update = jest.fn(() => ({
-      set: jest.fn((values: unknown) => {
-        updatedValues.push(values)
-        return {where: updateWhere}
-      }),
-    }))
-    const insert = jest.fn(() => ({
-      values: jest.fn(async (values: unknown) => {
-        notificationValues.push(values)
-        return [{insertId: 91}]
-      }),
-    }))
-    const trx = {
-      select: jest.fn(() => createQuery(selectResults.shift() ?? [])),
-      update,
-      insert,
-    }
-    transaction.mockImplementation(async (callback) => callback(trx))
-    const now = new Date('2026-08-20T00:00:00.000Z')
-
-    await expect(
-      applyPlaneRetestReadiness({
-        workItemId: 'work-item-id',
-        stateId: 'done-state-id',
-        config: readinessConfig,
-        now,
-      }),
-    ).resolves.toBe('applied')
-
-    expect(updatedValues).toEqual([
-      expect.objectContaining({
-        state: 'ready_for_retest',
-        readinessGeneration: 3,
-        providerStateId: 'done-state-id',
-        lastProviderObservedOn: now,
-      }),
-    ])
-    expect(notificationValues).toEqual([
-      expect.objectContaining({
-        notificationKey: 'plane-retest-ready:user:23:73:3',
-        defectCycleId: 73,
-        resultRevisionId: 41,
-        recipientKey: 'user:23',
-        channel: 'checkmate_retest_ready',
-        deliveryState: 'delivered',
-        deliveredOn: now,
-        payload: expect.objectContaining({
-          testRunMapId: 17,
-          deepLink: {projectId: 5, runId: 7, testId: 11},
+      const selectResults: QueryResult[] = [
+        [
+          {
+            defectCycleId: 73,
+            testRunMapId: 17,
+            runId: 7,
+            testId: 11,
+            projectId: 5,
+            openingRevisionId: 40,
+            state: cycleState,
+            currentEvidenceRevisionId: 41,
+            readinessGeneration: 2,
+          },
+        ],
+        [
+          {
+            testRunMapId: 17,
+            runId: 7,
+            testId: 11,
+            projectId: 5,
+            isIncluded: true,
+            currentResultRevisionId: 41,
+            runStatus: 'Active',
+          },
+        ],
+        [
+          {
+            resultRevisionId: 41,
+            testRunMapId: 17,
+            runId: 7,
+            testId: 11,
+            projectId: 5,
+          },
+        ],
+        [{userId: 23}],
+        [],
+      ]
+      const updatedValues: unknown[] = []
+      const notificationValues: unknown[] = []
+      const updateWhere = jest.fn(async () => [{affectedRows: 1}])
+      const update = jest.fn(() => ({
+        set: jest.fn((values: unknown) => {
+          updatedValues.push(values)
+          return {where: updateWhere}
         }),
-      }),
-    ])
+      }))
+      const insert = jest.fn(() => ({
+        values: jest.fn(async (values: unknown) => {
+          notificationValues.push(values)
+          return [{insertId: 91}]
+        }),
+      }))
+      const trx = {
+        select: jest.fn(() => createQuery(selectResults.shift() ?? [])),
+        update,
+        insert,
+      }
+      transaction.mockImplementation(async (callback) => callback(trx))
+      const now = new Date('2026-08-20T00:00:00.000Z')
+
+      await expect(
+        applyPlaneRetestReadiness({
+          workItemId: 'work-item-id',
+          stateId: 'done-state-id',
+          config: readinessConfig,
+          now,
+        }),
+      ).resolves.toBe('applied')
+
+      expect(updatedValues).toEqual([
+        expect.objectContaining({
+          state: 'ready_for_retest',
+          readinessGeneration: 3,
+          providerStateId: 'done-state-id',
+          lastProviderObservedOn: now,
+        }),
+      ])
+      expect(notificationValues).toEqual([
+        expect.objectContaining({
+          notificationKey: 'plane-retest-ready:user:23:73:3',
+          defectCycleId: 73,
+          resultRevisionId: 41,
+          recipientKey: 'user:23',
+          channel: 'checkmate_retest_ready',
+          deliveryState: 'delivered',
+          deliveredOn: now,
+          payload: expect.objectContaining({
+            testRunMapId: 17,
+            deepLink: {projectId: 5, runId: 7, testId: 11},
+          }),
+        }),
+      ])
     },
   )
 
@@ -226,6 +237,145 @@ describe('Plane retest readiness', () => {
     ).resolves.toBe('no_op')
     expect(trx.update).not.toHaveBeenCalled()
     expect(trx.insert).not.toHaveBeenCalled()
+  })
+
+  it('withdraws readiness and invalidates its notification even after acknowledgement', async () => {
+    const selectResults: QueryResult[] = [
+      [
+        {
+          defectCycleId: 73,
+          testRunMapId: 17,
+          runId: 7,
+          testId: 11,
+          projectId: 5,
+          openingRevisionId: 40,
+          state: 'ready_for_retest',
+          currentEvidenceRevisionId: 41,
+          readinessGeneration: 3,
+          reopenState: null,
+          reopenRevisionId: null,
+        },
+      ],
+      [
+        {
+          testRunMapId: 17,
+          runId: 7,
+          testId: 11,
+          projectId: 5,
+          isIncluded: true,
+          currentResultRevisionId: 41,
+          runStatus: 'Active',
+        },
+      ],
+      [
+        {
+          resultRevisionId: 41,
+          testRunMapId: 17,
+          runId: 7,
+          testId: 11,
+          projectId: 5,
+        },
+      ],
+    ]
+    const updatedValues: unknown[] = []
+    const updateWhere = jest.fn(async () => [{affectedRows: 1}])
+    const trx = {
+      select: jest.fn(() => createQuery(selectResults.shift() ?? [])),
+      update: jest.fn(() => ({
+        set: jest.fn((values: unknown) => {
+          updatedValues.push(values)
+          return {where: updateWhere}
+        }),
+      })),
+      insert: jest.fn(),
+    }
+    transaction.mockImplementation(async (callback) => callback(trx))
+    const now = new Date('2026-08-20T01:00:00.000Z')
+
+    await expect(
+      applyPlaneRetestReadiness({
+        workItemId: 'work-item-id',
+        stateId: 'todo-state-id',
+        config: readinessConfig,
+        now,
+      }),
+    ).resolves.toBe('applied')
+
+    expect(updatedValues).toEqual([
+      {
+        state: 'work_item_open',
+        providerStateId: 'todo-state-id',
+        lastProviderObservedOn: now,
+      },
+      {invalidatedOn: now},
+    ])
+  })
+
+  it('records authoritative non-Done observation before accepting another readiness generation', async () => {
+    const selectResults: QueryResult[] = [
+      [
+        {
+          defectCycleId: 73,
+          testRunMapId: 17,
+          runId: 7,
+          testId: 11,
+          projectId: 5,
+          openingRevisionId: 40,
+          state: 'work_item_open',
+          currentEvidenceRevisionId: 41,
+          readinessGeneration: 3,
+          reopenState: 'delivered',
+          reopenRevisionId: 41,
+        },
+      ],
+      [
+        {
+          testRunMapId: 17,
+          runId: 7,
+          testId: 11,
+          projectId: 5,
+          isIncluded: true,
+          currentResultRevisionId: 41,
+          runStatus: 'Active',
+        },
+      ],
+      [
+        {
+          resultRevisionId: 41,
+          testRunMapId: 17,
+          runId: 7,
+          testId: 11,
+          projectId: 5,
+        },
+      ],
+    ]
+    const updatedValues: unknown[] = []
+    const updateWhere = jest.fn(async () => [{affectedRows: 1}])
+    const trx = {
+      select: jest.fn(() => createQuery(selectResults.shift() ?? [])),
+      update: jest.fn(() => ({
+        set: jest.fn((values: unknown) => {
+          updatedValues.push(values)
+          return {where: updateWhere}
+        }),
+      })),
+      insert: jest.fn(),
+    }
+    transaction.mockImplementation(async (callback) => callback(trx))
+
+    await expect(
+      applyPlaneRetestReadiness({
+        workItemId: 'work-item-id',
+        stateId: 'todo-state-id',
+        config: readinessConfig,
+      }),
+    ).resolves.toBe('applied')
+    expect(updatedValues).toEqual([
+      expect.objectContaining({
+        reopenState: 'observed',
+        providerStateId: 'todo-state-id',
+      }),
+    ])
   })
 
   it('surfaces manual attention when no active recipient can be resolved', async () => {
@@ -375,6 +525,13 @@ describe('Plane retest readiness', () => {
   })
 
   it('claims only readiness events and re-fetches authoritative state before applying', async () => {
+    transaction.mockImplementation(async (callback) =>
+      callback({
+        select: jest.fn(() => createQuery([])),
+        update: jest.fn(),
+        insert: jest.fn(),
+      }),
+    )
     mockClaimIntegrationInboxEvents
       .mockResolvedValueOnce([
         {
@@ -439,7 +596,9 @@ describe('Plane retest readiness', () => {
 
     await expect(
       processPlaneRetestReadinessInbox({config: readinessConfig, adapter}),
-    ).resolves.toEqual(expect.objectContaining({manualAttention: 1, retryDue: 0}))
+    ).resolves.toEqual(
+      expect.objectContaining({manualAttention: 1, retryDue: 0}),
+    )
     expect(mockFinalizeIntegrationInboxEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         integrationInboxId: 94,

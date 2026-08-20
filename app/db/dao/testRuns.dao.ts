@@ -182,6 +182,13 @@ const TestRunsDao = {
             THEN MAX(${defectCycles.providerUrl})
             ELSE NULL
           END`.as('planeDefectUrl'),
+          planeReopenState: sql<
+            'pending' | 'delivered' | 'observed' | 'manual_attention' | null
+          >`CASE
+            WHEN COUNT(DISTINCT ${testRunMap.testRunMapId}) = 1
+            THEN MAX(${defectCycles.reopenState})
+            ELSE NULL
+          END`.as('planeReopenState'),
           planeEvidenceState: sql<
             'pending' | 'delivered' | 'manual_attention' | null
           >`CASE
@@ -229,10 +236,7 @@ const TestRunsDao = {
         )
         .leftJoin(
           planeEvidenceDeliveries,
-          eq(
-            planeEvidenceDeliveries.defectCycleId,
-            defectCycles.defectCycleId,
-          ),
+          eq(planeEvidenceDeliveries.defectCycleId, defectCycles.defectCycleId),
         )
         .leftJoin(runs, eq(testRunMap.runId, runs.runId))
         .leftJoin(tests, eq(testRunMap.testId, tests.testId))

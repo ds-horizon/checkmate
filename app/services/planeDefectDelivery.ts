@@ -1,6 +1,7 @@
 import {and, eq} from 'drizzle-orm'
 import {
   defectCycles,
+  PlaneCycleActionIntent,
   PlaneDefectIntent,
   PlaneEvidenceIntent,
 } from '@schema/resultRevisions'
@@ -55,6 +56,12 @@ export type PlaneDefectCycleStore = {
     intent: PlaneEvidenceIntent,
     config: PlaneAdapterConfig,
   ): Promise<LinkedWorkItem>
+  reserveCycleAction(
+    intent: PlaneCycleActionIntent,
+    config: PlaneAdapterConfig,
+  ): Promise<CycleReservation>
+  completeCycleAction(intent: PlaneCycleActionIntent): Promise<boolean>
+  markCycleActionManualAttention(intent: PlaneCycleActionIntent): Promise<void>
 }
 
 const providerUrl = (
@@ -216,6 +223,97 @@ export const planeDefectCycleStore: PlaneDefectCycleStore = {
       reason: `Plane evidence has no linked work item in cycle state: ${cycle.state}`,
     }
   },
+
+  reserveCycleAction: async (intent, config) => {
+    const [cycle] = await dbClient
+      .select({
+        state: defectCycles.state,
+        provider: defectCycles.provider,
+        providerWorkspaceId: defectCycles.providerWorkspaceId,
+        providerProjectId: defectCycles.providerProjectId,
+        providerWorkItemId: defectCycles.providerWorkItemId,
+        reopenState: defectCycles.reopenState,
+        reopenRevisionId: defectCycles.reopenRevisionId,
+      })
+      .from(defectCycles)
+      .where(eq(defectCycles.defectCycleId, intent.defectCycleId))
+      .limit(1)
+
+    if (!cycle) {
+      return {
+        outcome: 'manual_attention',
+        reason: 'Plane defect cycle was not found for lifecycle delivery',
+      }
+    }
+    if (
+      cycle.provider !== 'plane' ||
+      cycle.providerWorkspaceId !== config.workspaceId ||
+      cycle.providerProjectId !== config.projectId ||
+      cycle.providerWorkItemId !== intent.workItemId
+    ) {
+      return {
+        outcome: 'manual_attention',
+        reason: 'Plane lifecycle action destination did not match',
+      }
+    }
+
+    if (intent.action === 'different_issue_superseded') {
+      return cycle.state === 'superseded'
+        ? {outcome: 'reserved'}
+        : {
+            outcome: 'manual_attention',
+            reason: `Plane lifecycle action found cycle state: ${cycle.state}`,
+          }
+    }
+
+    if (
+      cycle.reopenRevisionId !== intent.resultRevisionId ||
+      cycle.state !== 'work_item_open'
+    ) {
+      return {
+        outcome: 'manual_attention',
+        reason: 'Plane reopen action lost its cycle revision fence',
+      }
+    }
+    if (cycle.reopenState === 'delivered' || cycle.reopenState === 'observed') {
+      return {outcome: 'delivered'}
+    }
+    return cycle.reopenState === 'pending'
+      ? {outcome: 'reserved'}
+      : {
+          outcome: 'manual_attention',
+          reason: `Plane reopen action found reopen state: ${cycle.reopenState}`,
+        }
+  },
+
+  completeCycleAction: async (intent) => {
+    if (intent.action === 'different_issue_superseded') return true
+    const result = await dbClient
+      .update(defectCycles)
+      .set({reopenState: 'delivered'})
+      .where(
+        and(
+          eq(defectCycles.defectCycleId, intent.defectCycleId),
+          eq(defectCycles.reopenRevisionId, intent.resultRevisionId),
+          eq(defectCycles.reopenState, 'pending'),
+        ),
+      )
+    return result[0].affectedRows === 1
+  },
+
+  markCycleActionManualAttention: async (intent) => {
+    if (intent.action !== 'same_issue_reopen') return
+    await dbClient
+      .update(defectCycles)
+      .set({reopenState: 'manual_attention'})
+      .where(
+        and(
+          eq(defectCycles.defectCycleId, intent.defectCycleId),
+          eq(defectCycles.reopenRevisionId, intent.resultRevisionId),
+          eq(defectCycles.reopenState, 'pending'),
+        ),
+      )
+  },
 }
 
 export const createPlaneResultDeliveryAdapter = ({
@@ -224,6 +322,7 @@ export const createPlaneResultDeliveryAdapter = ({
   cycleStore = planeDefectCycleStore,
   evidenceCopyEnabled = false,
   evidenceStore,
+  reopenStateId,
   clock = () => new Date(),
 }: {
   config: PlaneAdapterConfig
@@ -231,10 +330,63 @@ export const createPlaneResultDeliveryAdapter = ({
   cycleStore?: PlaneDefectCycleStore
   evidenceCopyEnabled?: boolean
   evidenceStore?: PlaneEvidenceDeliveryStore
+  reopenStateId?: string
   clock?: () => Date
 }): PlaneResultDeliveryAdapter => ({
   maxDeliveryMs: config.timeoutMs * 6,
   async deliverResultRevision(event) {
+    const actionIntent = event.payload.planeCycleActionIntent
+    if (actionIntent) {
+      const reservation = await cycleStore.reserveCycleAction(
+        actionIntent,
+        config,
+      )
+      if (reservation.outcome !== 'reserved') return reservation
+      try {
+        await planeAdapter.ensureComment({
+          workItemId: actionIntent.workItemId,
+          marker: actionIntent.marker,
+          commentHtml: actionIntent.commentHtml,
+        })
+        if (actionIntent.action === 'same_issue_reopen') {
+          if (!reopenStateId) {
+            await cycleStore.markCycleActionManualAttention(actionIntent)
+            return {
+              outcome: 'manual_attention',
+              reason: 'Plane reopen state is not configured',
+            }
+          }
+          await planeAdapter.ensureWorkItemState({
+            workItemId: actionIntent.workItemId,
+            stateId: reopenStateId,
+          })
+        }
+      } catch (error) {
+        if (error instanceof PlaneAdapterError && error.kind === 'retryable') {
+          return {
+            outcome: 'retry_due',
+            reason: error.message,
+            retryAfterMs: error.retryAfterMs,
+          }
+        }
+        await cycleStore.markCycleActionManualAttention(actionIntent)
+        return {
+          outcome: 'manual_attention',
+          reason:
+            error instanceof PlaneAdapterError
+              ? error.message
+              : sanitizePlaneError(error),
+        }
+      }
+      const completed = await cycleStore.completeCycleAction(actionIntent)
+      return completed
+        ? {outcome: 'delivered'}
+        : {
+            outcome: 'manual_attention',
+            reason: 'Plane lifecycle action lost its completion fence',
+          }
+    }
+
     const evidenceIntent = event.payload.planeEvidenceIntent
     if (evidenceIntent) {
       if (!evidenceCopyEnabled) {
@@ -352,6 +504,8 @@ export const runConfiguredPlaneDeliveryBatch = async ({
     config,
     planeAdapter: createPlaneAdapter(environment),
     evidenceCopyEnabled: isPlaneEvidenceCopyEnabled(environment),
+    reopenStateId:
+      environment.PLANE_RETEST_REOPEN_STATE_ID?.trim() || undefined,
   })
   return runPlaneDeliveryBatch({
     adapter,

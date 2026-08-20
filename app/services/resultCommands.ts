@@ -1,10 +1,11 @@
 import {createHash, randomUUID} from 'node:crypto'
-import {and, desc, eq, inArray} from 'drizzle-orm'
+import {and, desc, eq, inArray, isNull} from 'drizzle-orm'
 import {projects} from '@schema/projects'
 import {
   defectCycles,
   planeEvidenceDeliveries,
   resultCommands,
+  resultNotifications,
   resultAttachmentObjects,
   resultOutbox,
   resultRevisionAttachments,
@@ -25,6 +26,7 @@ export type SaveHumanResultCommand = {
   comment?: string | null
   attachmentKeys?: string[]
   createPlaneDefect?: boolean
+  retestIssue?: 'same_issue' | 'different_issue'
   actorUserId: number
 }
 
@@ -47,6 +49,7 @@ const canonicalCommandPayload = (command: SaveHumanResultCommand) => {
     comment,
     attachmentKeys,
     createPlaneDefect,
+    retestIssue,
     actorUserId,
   } = command
   const normalizedAttachmentKeys = [...new Set(attachmentKeys ?? [])].sort()
@@ -59,6 +62,7 @@ const canonicalCommandPayload = (command: SaveHumanResultCommand) => {
     comment: comment ?? null,
     attachmentKeys: normalizedAttachmentKeys,
     ...(createPlaneDefect === true ? {createPlaneDefect: true} : {}),
+    ...(retestIssue ? {retestIssue} : {}),
   })
 }
 
@@ -76,16 +80,61 @@ const buildPlaneAttachmentName = ({
   sha256: string
 }) => {
   const originalName =
-    objectKey.replace(
-      /^test-run-attachments\/[0-9a-f-]{36}-/,
-      '',
-    ) || 'screenshot'
+    objectKey.replace(/^test-run-attachments\/[0-9a-f-]{36}-/, '') ||
+    'screenshot'
   const prefix = `checkmate-${resultAttachmentObjectId}-${sha256.slice(0, 12)}-`
   return `${prefix}${originalName.slice(-(255 - prefix.length))}`
 }
 
 const isPlaneDefectEligibleStatus = (status: TestStatusType) =>
   status === TestStatusType.Failed || status === TestStatusType.Retest
+
+const escapeHtml = (value: string) =>
+  value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+
+const buildPlaneCycleActionIntent = ({
+  action,
+  defectCycleId,
+  resultRevisionId,
+  workItemId,
+  revisionNumber,
+  status,
+  comment,
+}: {
+  action: 'same_issue_reopen' | 'different_issue_superseded'
+  defectCycleId: number
+  resultRevisionId: number
+  workItemId: string
+  revisionNumber: number
+  status: TestStatusType
+  comment: string | null
+}) => {
+  const marker = `<!-- checkmate-cycle-action:${action}:${defectCycleId}:${resultRevisionId} -->`
+  const actionText =
+    action === 'same_issue_reopen'
+      ? 'Checkmate retest failed for the same issue. Reopening for development.'
+      : 'Checkmate retest identified a different issue. This cycle was superseded and a new defect cycle was opened.'
+  return {
+    action,
+    defectCycleId,
+    resultRevisionId,
+    workItemId,
+    marker,
+    commentHtml: [
+      marker,
+      `<p><strong>${actionText}</strong></p>`,
+      `<p>Status: ${escapeHtml(
+        status,
+      )}<br>Result revision: ${revisionNumber}</p>`,
+      `<p>${escapeHtml(comment?.trim() || '(no result note)')}</p>`,
+    ].join(''),
+  }
+}
 
 const buildPlaneDefectIntent = ({
   defectCycleId,
@@ -256,6 +305,7 @@ export const saveHumanResult = async (
         403,
       )
     }
+
     const [latestRevision] = await trx
       .select({revisionNumber: resultRevisions.revisionNumber})
       .from(resultRevisions)
@@ -326,6 +376,53 @@ export const saveHumanResult = async (
       )
     }
 
+    const [activeCycle] = await trx
+      .select({
+        defectCycleId: defectCycles.defectCycleId,
+        state: defectCycles.state,
+        provider: defectCycles.provider,
+        providerWorkspaceId: defectCycles.providerWorkspaceId,
+        providerProjectId: defectCycles.providerProjectId,
+        providerWorkItemId: defectCycles.providerWorkItemId,
+      })
+      .from(defectCycles)
+      .where(
+        and(
+          eq(defectCycles.testRunMapId, aggregate.testRunMapId),
+          eq(defectCycles.activeMarker, 1),
+        ),
+      )
+      .limit(1)
+      .for('update')
+
+    const isFailedReadyRetest =
+      command.status === TestStatusType.Failed &&
+      activeCycle?.state === 'ready_for_retest'
+    if (isFailedReadyRetest && !command.retestIssue) {
+      throw new ResultCommandError(
+        'Choose whether this retest failed for the same issue or a different issue',
+        400,
+      )
+    }
+    if (command.retestIssue && !isFailedReadyRetest) {
+      throw new ResultCommandError(
+        'The retest issue decision is valid only for a failed ready-to-retest cycle',
+        409,
+      )
+    }
+    if (isFailedReadyRetest && command.createPlaneDefect !== true) {
+      throw new ResultCommandError(
+        'A failed linked retest must update its Plane defect cycle',
+        409,
+      )
+    }
+    if (isFailedReadyRetest && !activeCycle?.providerWorkItemId) {
+      throw new ResultCommandError(
+        'The ready-to-retest cycle has no linked Plane work item',
+        409,
+      )
+    }
+
     const revisionInsert = await trx.insert(resultRevisions).values({
       testRunMapId: aggregate.testRunMapId,
       revisionNumber,
@@ -340,6 +437,7 @@ export const saveHumanResult = async (
       actorType: 'human',
       sourceSystem: 'checkmate',
       sourceEventId: command.resultCommandId,
+      retestIssue: command.retestIssue,
     })
     const resultRevisionId = revisionInsert[0].insertId
 
@@ -397,21 +495,22 @@ export const saveHumanResult = async (
 
     let defectCycleId: number | null = null
 
-    if (command.status === TestStatusType.Passed) {
-      const [activeCorrelatedCycle] = await trx
-        .select({defectCycleId: defectCycles.defectCycleId})
-        .from(defectCycles)
+    const invalidateRetestNotifications = async (cycleId: number) => {
+      await trx
+        .update(resultNotifications)
+        .set({invalidatedOn: new Date()})
         .where(
           and(
-            eq(defectCycles.testRunMapId, aggregate.testRunMapId),
-            eq(defectCycles.activeMarker, 1),
+            eq(resultNotifications.defectCycleId, cycleId),
+            eq(resultNotifications.channel, 'checkmate_retest_ready'),
+            isNull(resultNotifications.invalidatedOn),
           ),
         )
-        .limit(1)
-        .for('update')
+    }
 
-      if (activeCorrelatedCycle) {
-        defectCycleId = activeCorrelatedCycle.defectCycleId
+    if (command.status === TestStatusType.Passed) {
+      if (activeCycle) {
+        defectCycleId = activeCycle.defectCycleId
         const cycleUpdate = await trx
           .update(defectCycles)
           .set({
@@ -419,11 +518,11 @@ export const saveHumanResult = async (
             activeMarker: null,
             closedOn: new Date(),
           })
-          .where(
-            eq(defectCycles.defectCycleId, activeCorrelatedCycle.defectCycleId),
-          )
+          .where(eq(defectCycles.defectCycleId, activeCycle.defectCycleId))
         if (cycleUpdate[0].affectedRows !== 1) {
-          throw new Error('Defect cycle validation did not affect exactly one row')
+          throw new Error(
+            'Defect cycle validation did not affect exactly one row',
+          )
         }
         const revisionCycleUpdate = await trx
           .update(resultRevisions)
@@ -434,32 +533,19 @@ export const saveHumanResult = async (
             'Validated result revision cycle link did not affect exactly one row',
           )
         }
+        await invalidateRetestNotifications(activeCycle.defectCycleId)
       }
     }
 
     let planeDefectIntent: ResultRevisionCommittedPayload['planeDefectIntent']
+    const planeCycleActionIntents: NonNullable<
+      ResultRevisionCommittedPayload['planeCycleActionIntent']
+    >[] = []
     const planeEvidenceIntents: NonNullable<
       ResultRevisionCommittedPayload['planeEvidenceIntent']
     >[] = []
 
     if (createPlaneDefect) {
-      const [activeCycle] = await trx
-        .select({
-          defectCycleId: defectCycles.defectCycleId,
-          provider: defectCycles.provider,
-          providerWorkspaceId: defectCycles.providerWorkspaceId,
-          providerProjectId: defectCycles.providerProjectId,
-        })
-        .from(defectCycles)
-        .where(
-          and(
-            eq(defectCycles.testRunMapId, aggregate.testRunMapId),
-            eq(defectCycles.activeMarker, 1),
-          ),
-        )
-        .limit(1)
-        .for('update')
-
       if (activeCycle) {
         if (
           activeCycle.provider !== PLANE_PROVIDER ||
@@ -471,13 +557,76 @@ export const saveHumanResult = async (
             409,
           )
         }
-        defectCycleId = activeCycle.defectCycleId
+      }
+
+      let targetActiveCycle: typeof activeCycle | undefined = activeCycle
+      if (
+        activeCycle &&
+        command.retestIssue === 'different_issue' &&
+        activeCycle.providerWorkItemId
+      ) {
+        planeCycleActionIntents.push(
+          buildPlaneCycleActionIntent({
+            action: 'different_issue_superseded',
+            defectCycleId: activeCycle.defectCycleId,
+            resultRevisionId,
+            workItemId: activeCycle.providerWorkItemId,
+            revisionNumber,
+            status: command.status,
+            comment: effectiveComment,
+          }),
+        )
         const cycleUpdate = await trx
           .update(defectCycles)
-          .set({currentEvidenceRevisionId: resultRevisionId})
+          .set({
+            state: 'superseded',
+            activeMarker: null,
+            closedOn: new Date(),
+          })
+          .where(eq(defectCycles.defectCycleId, activeCycle.defectCycleId))
+        if (cycleUpdate[0].affectedRows !== 1) {
+          throw new Error(
+            'Superseded defect cycle update did not affect exactly one row',
+          )
+        }
+        await invalidateRetestNotifications(activeCycle.defectCycleId)
+        targetActiveCycle = undefined
+      }
+
+      if (targetActiveCycle) {
+        defectCycleId = targetActiveCycle.defectCycleId
+        const isSameIssueReopen = command.retestIssue === 'same_issue'
+        const cycleUpdate = await trx
+          .update(defectCycles)
+          .set({
+            currentEvidenceRevisionId: resultRevisionId,
+            ...(isSameIssueReopen
+              ? {
+                  state: 'work_item_open' as const,
+                  reopenState: 'pending' as const,
+                  reopenRevisionId: resultRevisionId,
+                }
+              : {}),
+          })
           .where(eq(defectCycles.defectCycleId, defectCycleId))
         if (cycleUpdate[0].affectedRows !== 1) {
           throw new Error('Defect cycle update did not affect exactly one row')
+        }
+        if (isSameIssueReopen) {
+          await invalidateRetestNotifications(defectCycleId)
+        }
+        if (isSameIssueReopen && targetActiveCycle.providerWorkItemId) {
+          planeCycleActionIntents.push(
+            buildPlaneCycleActionIntent({
+              action: 'same_issue_reopen',
+              defectCycleId,
+              resultRevisionId,
+              workItemId: targetActiveCycle.providerWorkItemId,
+              revisionNumber,
+              status: command.status,
+              comment: effectiveComment,
+            }),
+          )
         }
       } else {
         const [latestCycle] = await trx
@@ -584,22 +733,24 @@ export const saveHumanResult = async (
           .for('update')
         if (existingDelivery) continue
 
-        const deliveryInsert = await trx.insert(planeEvidenceDeliveries).values({
-          defectCycleId,
-          resultRevisionId,
-          resultAttachmentObjectId: source.resultAttachmentObjectId,
-          sourceKind: source.sourceKind,
-          sourceIdentity: source.sourceIdentity,
-          sourceText: source.sourceText,
-          sourceObjectKey: source.sourceObjectKey,
-          sourceSha256: source.sourceSha256,
-          sourceContentType: source.sourceContentType,
-          sourceByteSize: source.sourceByteSize,
-          providerResourceName: source.providerResourceName,
-          provider: PLANE_PROVIDER,
-          providerWorkspaceId: PLANE_WORKSPACE_ID,
-          providerProjectId: PLANE_PROJECT_ID,
-        })
+        const deliveryInsert = await trx
+          .insert(planeEvidenceDeliveries)
+          .values({
+            defectCycleId,
+            resultRevisionId,
+            resultAttachmentObjectId: source.resultAttachmentObjectId,
+            sourceKind: source.sourceKind,
+            sourceIdentity: source.sourceIdentity,
+            sourceText: source.sourceText,
+            sourceObjectKey: source.sourceObjectKey,
+            sourceSha256: source.sourceSha256,
+            sourceContentType: source.sourceContentType,
+            sourceByteSize: source.sourceByteSize,
+            providerResourceName: source.providerResourceName,
+            provider: PLANE_PROVIDER,
+            providerWorkspaceId: PLANE_WORKSPACE_ID,
+            providerProjectId: PLANE_PROJECT_ID,
+          })
         const planeEvidenceDeliveryId = deliveryInsert[0].insertId
         if (!planeEvidenceDeliveryId) {
           throw new Error('Plane evidence delivery insert did not return an ID')
@@ -658,6 +809,17 @@ export const saveHumanResult = async (
       resultRevisionId,
       payload: outboxPayload,
     })
+
+    for (const planeCycleActionIntent of planeCycleActionIntents) {
+      await trx.insert(resultOutbox).values({
+        eventKey: `plane-cycle-action:${planeCycleActionIntent.action}:${planeCycleActionIntent.defectCycleId}:${resultRevisionId}`,
+        eventType: 'plane_cycle_action_requested',
+        aggregateType: 'defect_cycle',
+        aggregateId: planeCycleActionIntent.defectCycleId,
+        resultRevisionId,
+        payload: {...outboxPayload, planeCycleActionIntent},
+      })
+    }
 
     for (const planeEvidenceIntent of planeEvidenceIntents) {
       await trx.insert(resultOutbox).values({

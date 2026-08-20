@@ -75,6 +75,38 @@ describe('Plane intake adapter', () => {
     >({kind: 'manual_attention'})
   })
 
+  it('moves a work item to the exact requested state and verifies the response', async () => {
+    const fetchImplementation = jest
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({id: 'work-item-id', state: {id: 'done-state-id'}}),
+      )
+      .mockResolvedValueOnce(
+        Response.json({id: 'work-item-id', state: {id: 'todo-state-id'}}),
+      )
+    const adapter = createPlaneAdapter(environment, fetchImplementation)
+
+    await expect(
+      adapter.ensureWorkItemState({
+        workItemId: 'work-item-id',
+        stateId: 'todo-state-id',
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        workItemId: 'work-item-id',
+        stateId: 'todo-state-id',
+      }),
+    )
+    expect(fetchImplementation).toHaveBeenNthCalledWith(
+      2,
+      'https://plane-dev.geep-fence.ts.net/api/v1/workspaces/infinimind/projects/67726ee5-7d0c-4656-8bc8-b2f8a959d5da/work-items/work-item-id/',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({state: 'todo-state-id'}),
+      }),
+    )
+  })
+
   it('creates Intake through the scoped API and returns durable identity', async () => {
     const fetchImplementation = jest.fn(
       async () =>
@@ -228,15 +260,17 @@ describe('Plane intake adapter', () => {
     jest.useFakeTimers()
     try {
       const response = new Response(null, {status: 201})
-      const fetchImplementation: typeof fetch = jest.fn(async (_input, init) => {
-        response.json = () =>
-          new Promise((_, reject) => {
-            init?.signal?.addEventListener('abort', () =>
-              reject(new Error('response body aborted')),
-            )
-          })
-        return response
-      })
+      const fetchImplementation: typeof fetch = jest.fn(
+        async (_input, init) => {
+          response.json = () =>
+            new Promise((_, reject) => {
+              init?.signal?.addEventListener('abort', () =>
+                reject(new Error('response body aborted')),
+              )
+            })
+          return response
+        },
+      )
       const adapter = createPlaneAdapter(
         {...environment, PLANE_API_TIMEOUT_MS: '10'},
         fetchImplementation,

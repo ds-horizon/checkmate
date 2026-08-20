@@ -414,7 +414,7 @@ describe('result commands', () => {
     expect(fake.insert).not.toHaveBeenCalled()
   })
 
-  it('validates a correlated active cycle when a human passes the result', async () => {
+  it('validates a correlated active cycle and invalidates its retest notification when a human passes', async () => {
     const fake = createTransaction({
       selectResults: [
         [aggregate],
@@ -433,7 +433,7 @@ describe('result commands', () => {
       expect.objectContaining({defectCycleId: 73, replayed: false}),
     )
 
-    expect(fake.update).toHaveBeenCalledTimes(3)
+    expect(fake.update).toHaveBeenCalledTimes(4)
     expect(fake.updatedValues).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -442,6 +442,7 @@ describe('result commands', () => {
           closedOn: expect.any(Date),
         }),
         {defectCycleId: 73},
+        {invalidatedOn: expect.any(Date)},
       ]),
     )
     expect(fake.insertedValues[2]).toEqual(
@@ -455,6 +456,154 @@ describe('result commands', () => {
       }),
     )
     expect(fake.insertedValues).toHaveLength(4)
+  })
+
+  it('requires an explicit issue decision when a ready retest fails', async () => {
+    const fake = createTransaction({
+      selectResults: [
+        [aggregate],
+        [],
+        [{testRunMapId: 17}],
+        [{userId: 23, role: 'user'}],
+        [],
+        [
+          {
+            defectCycleId: 72,
+            state: 'ready_for_retest',
+            provider: 'plane',
+            providerWorkspaceId: 'e36dfd86-953a-4e33-a410-856208893bb9',
+            providerProjectId: '67726ee5-7d0c-4656-8bc8-b2f8a959d5da',
+            providerWorkItemId: 'work-item-id',
+          },
+        ],
+      ],
+    })
+    transaction.mockImplementation(async (callback) => callback(fake.trx))
+
+    await expect(
+      saveHumanResult({...command, createPlaneDefect: true}),
+    ).rejects.toEqual(expect.objectContaining({status: 400}))
+    expect(fake.insert).not.toHaveBeenCalled()
+  })
+
+  it('queues a fenced reopen when a failed retest is the same issue', async () => {
+    const fake = createTransaction({
+      selectResults: [
+        [aggregate],
+        [],
+        [{testRunMapId: 17}],
+        [{userId: 23, role: 'user'}],
+        [],
+        [
+          {
+            defectCycleId: 72,
+            state: 'ready_for_retest',
+            provider: 'plane',
+            providerWorkspaceId: 'e36dfd86-953a-4e33-a410-856208893bb9',
+            providerProjectId: '67726ee5-7d0c-4656-8bc8-b2f8a959d5da',
+            providerWorkItemId: 'work-item-id',
+          },
+        ],
+        [],
+      ],
+    })
+    transaction.mockImplementation(async (callback) => callback(fake.trx))
+
+    await expect(
+      saveHumanResult({
+        ...command,
+        createPlaneDefect: true,
+        retestIssue: 'same_issue',
+      }),
+    ).resolves.toEqual(expect.objectContaining({defectCycleId: 72}))
+
+    expect(fake.insertedValues[0]).toEqual(
+      expect.objectContaining({retestIssue: 'same_issue'}),
+    )
+    expect(fake.updatedValues).toContainEqual(
+      expect.objectContaining({
+        currentEvidenceRevisionId: 41,
+        state: 'work_item_open',
+        reopenState: 'pending',
+        reopenRevisionId: 41,
+      }),
+    )
+    expect(fake.updatedValues).toContainEqual({
+      invalidatedOn: expect.any(Date),
+    })
+    expect(fake.insertedValues).toContainEqual(
+      expect.objectContaining({
+        eventKey: 'plane-cycle-action:same_issue_reopen:72:41',
+        eventType: 'plane_cycle_action_requested',
+        payload: expect.objectContaining({
+          planeCycleActionIntent: expect.objectContaining({
+            action: 'same_issue_reopen',
+            workItemId: 'work-item-id',
+          }),
+        }),
+      }),
+    )
+  })
+
+  it('supersedes the old cycle and opens a new one for a different issue', async () => {
+    const fake = createTransaction({
+      selectResults: [
+        [aggregate],
+        [],
+        [{testRunMapId: 17}],
+        [{userId: 23, role: 'user'}],
+        [],
+        [
+          {
+            defectCycleId: 72,
+            state: 'ready_for_retest',
+            provider: 'plane',
+            providerWorkspaceId: 'e36dfd86-953a-4e33-a410-856208893bb9',
+            providerProjectId: '67726ee5-7d0c-4656-8bc8-b2f8a959d5da',
+            providerWorkItemId: 'work-item-id',
+          },
+        ],
+        [{cycleNumber: 1}],
+      ],
+    })
+    transaction.mockImplementation(async (callback) => callback(fake.trx))
+
+    await expect(
+      saveHumanResult({
+        ...command,
+        createPlaneDefect: true,
+        retestIssue: 'different_issue',
+      }),
+    ).resolves.toEqual(expect.objectContaining({defectCycleId: 73}))
+
+    expect(fake.updatedValues).toContainEqual(
+      expect.objectContaining({
+        state: 'superseded',
+        activeMarker: null,
+        closedOn: expect.any(Date),
+      }),
+    )
+    expect(fake.updatedValues).toContainEqual({
+      invalidatedOn: expect.any(Date),
+    })
+    expect(fake.insertedValues).toContainEqual(
+      expect.objectContaining({
+        testRunMapId: 17,
+        cycleNumber: 2,
+        state: 'intake_pending',
+        openingRevisionId: 41,
+      }),
+    )
+    expect(fake.insertedValues).toContainEqual(
+      expect.objectContaining({
+        eventKey: 'plane-cycle-action:different_issue_superseded:72:41',
+      }),
+    )
+    expect(fake.insertedValues).toContainEqual(
+      expect.objectContaining({
+        eventKey: 'defect-cycle:73:plane-create',
+      }),
+    )
   })
 
   it('reserves one active cycle and enqueues a correlated Plane create', async () => {

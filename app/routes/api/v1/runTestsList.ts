@@ -48,6 +48,12 @@ export interface Tests {
     | null
   planeDefectUrl: string | null
   planeEvidenceState: 'pending' | 'delivered' | 'manual_attention' | null
+  planeReopenState:
+    | 'pending'
+    | 'delivered'
+    | 'observed'
+    | 'manual_attention'
+    | null
 }
 
 export interface RunTestListResponseType {

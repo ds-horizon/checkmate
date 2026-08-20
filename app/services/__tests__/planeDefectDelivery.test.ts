@@ -99,6 +99,18 @@ const createCycleStore = (): jest.Mocked<PlaneDefectCycleStore> => ({
     ReturnType<PlaneDefectCycleStore['resolveLinkedWorkItem']>,
     Parameters<PlaneDefectCycleStore['resolveLinkedWorkItem']>
   >(async () => ({outcome: 'linked', workItemId: 'work-item-id'})),
+  reserveCycleAction: jest.fn<
+    ReturnType<PlaneDefectCycleStore['reserveCycleAction']>,
+    Parameters<PlaneDefectCycleStore['reserveCycleAction']>
+  >(async () => ({outcome: 'reserved'})),
+  completeCycleAction: jest.fn<
+    ReturnType<PlaneDefectCycleStore['completeCycleAction']>,
+    Parameters<PlaneDefectCycleStore['completeCycleAction']>
+  >(async () => true),
+  markCycleActionManualAttention: jest.fn<
+    ReturnType<PlaneDefectCycleStore['markCycleActionManualAttention']>,
+    Parameters<PlaneDefectCycleStore['markCycleActionManualAttention']>
+  >(async () => undefined),
 })
 
 const createAdapter = (): jest.Mocked<PlaneAdapter> => ({
@@ -112,6 +124,15 @@ const createAdapter = (): jest.Mocked<PlaneAdapter> => ({
     projectIdentifier: 'BIZ',
     raw: {},
   })),
+  getWorkItem: jest.fn<
+    ReturnType<PlaneAdapter['getWorkItem']>,
+    Parameters<PlaneAdapter['getWorkItem']>
+  >(async (workItemId) => ({
+    workItemId,
+    stateId: 'state-id',
+    versionMarker: null,
+    raw: {},
+  })),
   ensureComment: jest.fn<
     ReturnType<PlaneAdapter['ensureComment']>,
     Parameters<PlaneAdapter['ensureComment']>
@@ -120,6 +141,15 @@ const createAdapter = (): jest.Mocked<PlaneAdapter> => ({
     ReturnType<PlaneAdapter['ensureAttachment']>,
     Parameters<PlaneAdapter['ensureAttachment']>
   >(async () => ({assetId: 'asset-id', attachmentId: 'attachment-id'})),
+  ensureWorkItemState: jest.fn<
+    ReturnType<PlaneAdapter['ensureWorkItemState']>,
+    Parameters<PlaneAdapter['ensureWorkItemState']>
+  >(async ({workItemId, stateId}) => ({
+    workItemId,
+    stateId,
+    versionMarker: null,
+    raw: {},
+  })),
 })
 
 const createSelectQuery = (rows: unknown[]) => {
@@ -352,6 +382,81 @@ describe('Plane defect delivery adapter', () => {
     })
     expect(planeAdapter.createIntake).not.toHaveBeenCalled()
     expect(cycleStore.complete).not.toHaveBeenCalled()
+  })
+
+  it('comments and moves a same-issue retest through the configured reopen state', async () => {
+    const cycleStore = createCycleStore()
+    const planeAdapter = createAdapter()
+    const actionIntent = {
+      action: 'same_issue_reopen' as const,
+      defectCycleId: 73,
+      resultRevisionId: 41,
+      workItemId: 'work-item-id',
+      marker: '<!-- checkmate-cycle-action:same_issue_reopen:73:41 -->',
+      commentHtml: '<p>Retest failed for the same issue.</p>',
+    }
+    const adapter = createPlaneResultDeliveryAdapter({
+      config,
+      planeAdapter,
+      cycleStore,
+      reopenStateId: 'todo-state-id',
+    })
+
+    await expect(
+      adapter.deliverResultRevision({
+        ...event,
+        eventType: 'plane_cycle_action_requested',
+        payload: {...event.payload, planeCycleActionIntent: actionIntent},
+      }),
+    ).resolves.toEqual({outcome: 'delivered'})
+
+    expect(cycleStore.reserveCycleAction).toHaveBeenCalledWith(
+      actionIntent,
+      config,
+    )
+    expect(planeAdapter.ensureComment).toHaveBeenCalledWith({
+      workItemId: 'work-item-id',
+      marker: actionIntent.marker,
+      commentHtml: actionIntent.commentHtml,
+    })
+    expect(planeAdapter.ensureWorkItemState).toHaveBeenCalledWith({
+      workItemId: 'work-item-id',
+      stateId: 'todo-state-id',
+    })
+    expect(cycleStore.completeCycleAction).toHaveBeenCalledWith(actionIntent)
+  })
+
+  it('fails closed when same-issue reopen state is not configured', async () => {
+    const cycleStore = createCycleStore()
+    const planeAdapter = createAdapter()
+    const actionIntent = {
+      action: 'same_issue_reopen' as const,
+      defectCycleId: 73,
+      resultRevisionId: 41,
+      workItemId: 'work-item-id',
+      marker: '<!-- checkmate-cycle-action:same_issue_reopen:73:41 -->',
+      commentHtml: '<p>Retest failed for the same issue.</p>',
+    }
+    const adapter = createPlaneResultDeliveryAdapter({
+      config,
+      planeAdapter,
+      cycleStore,
+    })
+
+    await expect(
+      adapter.deliverResultRevision({
+        ...event,
+        eventType: 'plane_cycle_action_requested',
+        payload: {...event.payload, planeCycleActionIntent: actionIntent},
+      }),
+    ).resolves.toEqual({
+      outcome: 'manual_attention',
+      reason: 'Plane reopen state is not configured',
+    })
+    expect(cycleStore.markCycleActionManualAttention).toHaveBeenCalledWith(
+      actionIntent,
+    )
+    expect(planeAdapter.ensureWorkItemState).not.toHaveBeenCalled()
   })
 
   it('releases a known rate-limit failure before scheduling a retry', async () => {

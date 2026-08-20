@@ -8,6 +8,7 @@ interface PlaneDefectStatusProps {
   state: Tests['planeDefectState']
   url: string | null
   evidenceState: Tests['planeEvidenceState']
+  reopenState?: Tests['planeReopenState']
 }
 
 const statePresentation: Record<
@@ -89,8 +90,9 @@ export const PlaneDefectStatus = ({
   state,
   url,
   evidenceState,
+  reopenState = null,
 }: PlaneDefectStatusProps) => {
-  if (!state && !evidenceState) return null
+  if (!state && !evidenceState && !reopenState) return null
 
   const presentation = state ? statePresentation[state] : null
   const safeUrl = safePlaneUrl(url)
@@ -98,8 +100,26 @@ export const PlaneDefectStatus = ({
     'inline-flex max-w-[240px] items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium',
     presentation?.className,
   )
-  const evidence = evidenceState
-    ? evidencePresentation[evidenceState]
+  const evidence = evidenceState ? evidencePresentation[evidenceState] : null
+  const reopen = reopenState
+    ? {
+        pending: {
+          label: 'Reopening ticket',
+          className: 'border-amber-200 bg-amber-50 text-amber-800',
+        },
+        delivered: {
+          label: 'Waiting for Plane confirmation',
+          className: 'border-blue-200 bg-blue-50 text-blue-800',
+        },
+        observed: {
+          label: 'Reopen confirmed',
+          className: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+        },
+        manual_attention: {
+          label: 'Reopen needs help',
+          className: 'border-red-200 bg-red-50 text-red-800',
+        },
+      }[reopenState]
     : null
   const ticket = presentation ? (
     safeUrl ? (
@@ -132,6 +152,16 @@ export const PlaneDefectStatus = ({
           )}
         >
           {evidence.label}
+        </span>
+      )}
+      {reopen && (
+        <span
+          className={cn(
+            'inline-flex max-w-[240px] items-center rounded-full border px-2 py-1 text-[11px] font-medium',
+            reopen.className,
+          )}
+        >
+          {reopen.label}
         </span>
       )}
     </div>

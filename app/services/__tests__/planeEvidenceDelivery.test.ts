@@ -32,6 +32,10 @@ const createAdapter = (): jest.Mocked<PlaneAdapter> => ({
     ReturnType<PlaneAdapter['createIntake']>,
     Parameters<PlaneAdapter['createIntake']>
   >(),
+  getWorkItem: jest.fn<
+    ReturnType<PlaneAdapter['getWorkItem']>,
+    Parameters<PlaneAdapter['getWorkItem']>
+  >(),
   ensureComment: jest.fn<
     ReturnType<PlaneAdapter['ensureComment']>,
     Parameters<PlaneAdapter['ensureComment']>
@@ -43,6 +47,10 @@ const createAdapter = (): jest.Mocked<PlaneAdapter> => ({
     assetId: 'asset-id',
     attachmentId: 'attachment-id',
   })),
+  ensureWorkItemState: jest.fn<
+    ReturnType<PlaneAdapter['ensureWorkItemState']>,
+    Parameters<PlaneAdapter['ensureWorkItemState']>
+  >(),
 })
 
 type ReservedDelivery = Extract<

@@ -66,6 +66,11 @@ export type PlaneWorkItem = {
   raw: Record<string, unknown>
 }
 
+export type PlaneWorkItemStateRequest = {
+  workItemId: string
+  stateId: string
+}
+
 export type PlaneErrorKind =
   | 'retryable'
   | 'ambiguous_create'
@@ -89,7 +94,8 @@ const required = (
   name: string,
 ) => {
   const value = environment[name]?.trim()
-  if (!value) throw new Error(`${name} is required when Plane writes are enabled`)
+  if (!value)
+    throw new Error(`${name} is required when Plane writes are enabled`)
   return value
 }
 
@@ -219,7 +225,9 @@ const parseWorkItem = (
     stringValue(value.updated_at) ??
     stringValue(value.updatedAt) ??
     stringValue(value.updated_on) ??
-    (numberValue(value.version) === null ? null : String(numberValue(value.version)))
+    (numberValue(value.version) === null
+      ? null
+      : String(numberValue(value.version)))
   if (!workItemId || !stateId) {
     throw new PlaneAdapterError(
       'Plane work item response did not include an id and state id',
@@ -237,7 +245,9 @@ const parseWorkItem = (
 }
 
 export type PlaneAdapter = {
-  createIntake(request: PlaneIntakeCreateRequest): Promise<PlaneIntakeCreateResponse>
+  createIntake(
+    request: PlaneIntakeCreateRequest,
+  ): Promise<PlaneIntakeCreateResponse>
   getWorkItem(workItemId: string): Promise<PlaneWorkItem>
   ensureComment(
     request: PlaneCommentDeliveryRequest,
@@ -245,6 +255,9 @@ export type PlaneAdapter = {
   ensureAttachment(
     request: PlaneAttachmentDeliveryRequest,
   ): Promise<PlaneAttachmentDeliveryResponse>
+  ensureWorkItemState(
+    request: PlaneWorkItemStateRequest,
+  ): Promise<PlaneWorkItem>
 }
 
 export const createPlaneAdapter = (
@@ -329,8 +342,8 @@ export const createPlaneAdapter = (
     const results = Array.isArray(value.results)
       ? value.results
       : Array.isArray(value.data)
-        ? value.data
-        : []
+      ? value.data
+      : []
     return results.filter(isRecord)
   }
 
@@ -395,7 +408,9 @@ export const createPlaneAdapter = (
     if (!found) return null
     if (found.is_uploaded !== true) return {pending: true as const}
     const assetId =
-      stringValue(found.asset_id) ?? stringValue(found.asset) ?? stringValue(found.id)
+      stringValue(found.asset_id) ??
+      stringValue(found.asset) ??
+      stringValue(found.id)
     const attachmentId = stringValue(found.id) ?? assetId
     return assetId && attachmentId ? {assetId, attachmentId} : null
   }
@@ -507,7 +522,10 @@ export const createPlaneAdapter = (
 
     try {
       await planeFetch(
-        `${workItemPath(request.workItemId, 'attachments')}/${encodeURIComponent(assetId)}`,
+        `${workItemPath(
+          request.workItemId,
+          'attachments',
+        )}/${encodeURIComponent(assetId)}`,
         {
           method: 'PATCH',
           headers: {'Content-Type': 'application/json'},
@@ -586,7 +604,9 @@ export const createPlaneAdapter = (
         body = await response.json()
       } catch (error) {
         throw new PlaneAdapterError(
-          `Plane intake create returned invalid JSON: ${sanitizePlaneError(error)}`,
+          `Plane intake create returned invalid JSON: ${sanitizePlaneError(
+            error,
+          )}`,
           'manual_attention',
         )
       }
@@ -603,9 +623,58 @@ export const createPlaneAdapter = (
   }
 
   const getWorkItem = async (workItemId: string) => {
-    const body = await planeFetch(workItemPath(workItemId), {method: 'GET'}, false)
+    const body = await planeFetch(
+      workItemPath(workItemId),
+      {method: 'GET'},
+      false,
+    )
     return parseWorkItem(workItemId, body)
   }
 
-  return {createIntake, getWorkItem, ensureComment, ensureAttachment}
+  const ensureWorkItemState = async (request: PlaneWorkItemStateRequest) => {
+    const current = await getWorkItem(request.workItemId)
+    if (current.stateId === request.stateId) return current
+
+    try {
+      const body = await planeFetch(
+        workItemPath(request.workItemId),
+        {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({state: request.stateId}),
+        },
+        true,
+      )
+      const updated = parseWorkItem(request.workItemId, body)
+      if (updated.stateId !== request.stateId) {
+        throw new PlaneAdapterError(
+          'Plane work item update did not return the requested state',
+          'manual_attention',
+        )
+      }
+      return updated
+    } catch (error) {
+      if (
+        error instanceof PlaneAdapterError &&
+        error.kind === 'ambiguous_create'
+      ) {
+        const reconciled = await getWorkItem(request.workItemId)
+        if (reconciled.stateId === request.stateId) return reconciled
+        throw new PlaneAdapterError(
+          'Plane work item state update outcome is unknown',
+          'retryable',
+          error.retryAfterMs,
+        )
+      }
+      throw error
+    }
+  }
+
+  return {
+    createIntake,
+    getWorkItem,
+    ensureComment,
+    ensureAttachment,
+    ensureWorkItemState,
+  }
 }

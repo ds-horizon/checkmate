@@ -1,10 +1,7 @@
-import {and, asc, desc, eq} from 'drizzle-orm'
+import {and, asc, desc, eq, isNull} from 'drizzle-orm'
 import {dbClient} from '~/db/client'
 import {projects} from '@schema/projects'
-import {
-  resultNotifications,
-  resultRevisions,
-} from '@schema/resultRevisions'
+import {resultNotifications, resultRevisions} from '@schema/resultRevisions'
 import {runs} from '@schema/runs'
 import {tests} from '@schema/tests'
 
@@ -55,7 +52,10 @@ export const listMyRetestNotifications = async (
     .from(resultNotifications)
     .innerJoin(
       resultRevisions,
-      eq(resultRevisions.resultRevisionId, resultNotifications.resultRevisionId),
+      eq(
+        resultRevisions.resultRevisionId,
+        resultNotifications.resultRevisionId,
+      ),
     )
     .innerJoin(projects, eq(projects.projectId, resultRevisions.projectId))
     .innerJoin(runs, eq(runs.runId, resultRevisions.runId))
@@ -64,9 +64,13 @@ export const listMyRetestNotifications = async (
       and(
         eq(resultNotifications.recipientKey, recipientKeyFor(userId)),
         eq(resultNotifications.channel, RETEST_CHANNEL),
+        isNull(resultNotifications.invalidatedOn),
       ),
     )
-    .orderBy(asc(resultNotifications.readOn), desc(resultNotifications.createdOn))
+    .orderBy(
+      asc(resultNotifications.readOn),
+      desc(resultNotifications.createdOn),
+    )
     .limit(MAX_NOTIFICATIONS)
 }
 
@@ -106,6 +110,7 @@ export const acknowledgeMyRetestNotification = async ({
           eq(resultNotifications.resultNotificationId, resultNotificationId),
           eq(resultNotifications.recipientKey, recipientKeyFor(userId)),
           eq(resultNotifications.channel, RETEST_CHANNEL),
+          isNull(resultNotifications.invalidatedOn),
         ),
       )
       .limit(1)

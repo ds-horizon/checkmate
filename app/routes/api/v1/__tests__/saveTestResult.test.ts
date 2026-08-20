@@ -77,10 +77,29 @@ describe('Save Test Result - Action Function', () => {
     expect(response).toEqual({data: saved, status: 200})
   })
 
-  it('rejects defect creation intent while its separate flag is disabled', async () => {
+  it('allows reopening an existing issue while new defect creation is disabled', async () => {
     ;(getRequestParams as jest.Mock).mockResolvedValue({
       ...requestData,
       createPlaneDefect: true,
+      retestIssue: 'same_issue',
+    })
+    ;(saveHumanResult as jest.Mock).mockResolvedValue({resultRevisionId: 41})
+
+    await action(makeActionArgs(makeRequest()))
+
+    expect(saveHumanResult).toHaveBeenCalledWith({
+      ...requestData,
+      createPlaneDefect: true,
+      retestIssue: 'same_issue',
+      actorUserId: 23,
+    })
+  })
+
+  it('rejects a different-issue defect while new creation is disabled', async () => {
+    ;(getRequestParams as jest.Mock).mockResolvedValue({
+      ...requestData,
+      createPlaneDefect: true,
+      retestIssue: 'different_issue',
     })
 
     const response = await action(makeActionArgs(makeRequest()))
@@ -94,6 +113,7 @@ describe('Save Test Result - Action Function', () => {
     ;(getRequestParams as jest.Mock).mockResolvedValue({
       ...requestData,
       createPlaneDefect: true,
+      retestIssue: 'same_issue',
     })
     ;(saveHumanResult as jest.Mock).mockResolvedValue({resultRevisionId: 41})
 
@@ -102,6 +122,7 @@ describe('Save Test Result - Action Function', () => {
     expect(saveHumanResult).toHaveBeenCalledWith({
       ...requestData,
       createPlaneDefect: true,
+      retestIssue: 'same_issue',
       actorUserId: 23,
     })
   })

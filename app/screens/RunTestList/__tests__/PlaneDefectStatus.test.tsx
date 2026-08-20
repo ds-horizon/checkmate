@@ -19,9 +19,7 @@ describe('PlaneDefectStatus', () => {
     ['validated', 'Validated'],
     ['manual_attention', 'Needs help - contact owner'],
   ] as const)('shows %s as plain-language status', (state, label) => {
-    render(
-      <PlaneDefectStatus state={state} url={null} evidenceState={null} />,
-    )
+    render(<PlaneDefectStatus state={state} url={null} evidenceState={null} />)
 
     expect(screen.getByText(label)).not.toBeNull()
   })
@@ -72,4 +70,25 @@ describe('PlaneDefectStatus', () => {
 
     expect(screen.getByText(label)).not.toBeNull()
   })
+
+  it.each([
+    ['pending', 'Reopening ticket'],
+    ['delivered', 'Waiting for Plane confirmation'],
+    ['observed', 'Reopen confirmed'],
+    ['manual_attention', 'Reopen needs help'],
+  ] as const)(
+    'shows %s reopen progress independently',
+    (reopenState, label) => {
+      render(
+        <PlaneDefectStatus
+          state="work_item_open"
+          url={null}
+          evidenceState={null}
+          reopenState={reopenState}
+        />,
+      )
+
+      expect(screen.getByText(label)).not.toBeNull()
+    },
+  )
 })

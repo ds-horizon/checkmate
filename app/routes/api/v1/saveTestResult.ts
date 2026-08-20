@@ -25,6 +25,7 @@ const SaveTestResultRequestSchema = z.object({
     .max(20)
     .optional(),
   createPlaneDefect: z.boolean().optional(),
+  retestIssue: z.enum(['same_issue', 'different_issue']).optional(),
 })
 
 export type SaveTestResultRequest = z.infer<typeof SaveTestResultRequestSchema>
@@ -50,7 +51,11 @@ export const action = async ({request}: ActionFunctionArgs) => {
     }
 
     const data = await getRequestParams(request, SaveTestResultRequestSchema)
-    if (data.createPlaneDefect && !isPlaneDefectCreationEnabled()) {
+    if (
+      data.createPlaneDefect &&
+      data.retestIssue !== 'same_issue' &&
+      !isPlaneDefectCreationEnabled()
+    ) {
       return responseHandler({error: 'Not found', status: 404})
     }
     const result = await saveHumanResult({...data, actorUserId: user.userId})

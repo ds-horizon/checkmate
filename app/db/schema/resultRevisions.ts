@@ -48,6 +48,15 @@ export type PlaneEvidenceIntent = {
   resultRevisionId: number
 }
 
+export type PlaneCycleActionIntent = {
+  action: 'same_issue_reopen' | 'different_issue_superseded'
+  defectCycleId: number
+  resultRevisionId: number
+  workItemId: string
+  marker: string
+  commentHtml: string
+}
+
 export type ResultRevisionCommittedPayload = {
   resultCommandId: string
   resultRevisionId: number
@@ -64,6 +73,7 @@ export type ResultRevisionCommittedPayload = {
   defectCycleId?: number
   planeDefectIntent?: PlaneDefectIntent
   planeEvidenceIntent?: PlaneEvidenceIntent
+  planeCycleActionIntent?: PlaneCycleActionIntent
 }
 
 export type IntegrationEventPayload = Record<string, unknown>
@@ -83,6 +93,7 @@ export const resultRevisions = mysqlTable(
     testId: int('testId').notNull(),
     status: varchar('status', {length: 25}).notNull(),
     comment: text('comment'),
+    retestIssue: mysqlEnum('retestIssue', ['same_issue', 'different_issue']),
     actorUserId: int('actorUserId').notNull(),
     actorType: mysqlEnum('actorType', ['human', 'system']).notNull(),
     sourceSystem: varchar('sourceSystem', {length: 32}).notNull(),
@@ -419,6 +430,13 @@ export const defectCycles = mysqlTable(
     openingRevisionId: int('openingRevisionId').notNull(),
     currentEvidenceRevisionId: int('currentEvidenceRevisionId').notNull(),
     readinessGeneration: int('readinessGeneration').default(0).notNull(),
+    reopenState: mysqlEnum('reopenState', [
+      'pending',
+      'delivered',
+      'observed',
+      'manual_attention',
+    ]),
+    reopenRevisionId: int('reopenRevisionId'),
     provider: varchar('provider', {length: 32}),
     providerWorkspaceId: varchar('providerWorkspaceId', {length: 64}),
     providerProjectId: varchar('providerProjectId', {length: 64}),
@@ -474,6 +492,11 @@ export const defectCycles = mysqlTable(
       foreignColumns: [resultRevisions.resultRevisionId],
       name: 'defectCycleEvidenceRevisionFk',
     }),
+    defectCycleReopenRevisionFk: foreignKey({
+      columns: [cycle.reopenRevisionId],
+      foreignColumns: [resultRevisions.resultRevisionId],
+      name: 'defectCycleReopenRevisionFk',
+    }),
     defectCycleNumberUnique: unique('defectCycleNumberUnique').on(
       cycle.testRunMapId,
       cycle.cycleNumber,
@@ -499,6 +522,10 @@ export const defectCycles = mysqlTable(
     ),
     defectCycleStateIndex: index('defectCycleStateIndex').on(
       cycle.state,
+      cycle.updatedOn,
+    ),
+    defectCycleReopenIndex: index('defectCycleReopenIndex').on(
+      cycle.reopenState,
       cycle.updatedOn,
     ),
   }),
@@ -713,6 +740,7 @@ export const resultNotifications = mysqlTable(
     providerMessageId: varchar('providerMessageId', {length: 255}),
     deliveredOn: timestamp('deliveredOn'),
     readOn: timestamp('readOn'),
+    invalidatedOn: timestamp('invalidatedOn'),
     createdOn: timestamp('createdOn')
       .default(sql`CURRENT_TIMESTAMP`)
       .notNull(),

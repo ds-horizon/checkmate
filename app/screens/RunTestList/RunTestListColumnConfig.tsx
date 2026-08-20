@@ -173,6 +173,7 @@ export const RunTestListColumnConfig: ColumnDef<Tests>[] = [
                     | undefined
                 )?.planeEvidenceCopyEnabled,
               )}
+              planeDefectState={row.original.planeDefectState}
             />
           ) : (
             <span className="text-sm text-slate-700">
@@ -205,6 +206,7 @@ export const RunTestListColumnConfig: ColumnDef<Tests>[] = [
             state={row.original.planeDefectState}
             url={row.original.planeDefectUrl}
             evidenceState={row.original.planeEvidenceState}
+            reopenState={row.original.planeReopenState}
           />
         </div>
       )

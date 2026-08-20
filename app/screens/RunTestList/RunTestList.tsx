@@ -107,6 +107,8 @@ export default function RunTestList() {
   }, [])
 
   const testRunsData = resp?.data?.testsList || []
+  const resultRevisionCommandsEnabled =
+    resp?.data?.resultRevisionCommandsEnabled ?? false
 
   const totalCount = resp?.data?.totalCount ?? 0
 
@@ -132,6 +134,7 @@ export default function RunTestList() {
   const table = useReactTable({
     data: testRunsData,
     columns: RunTestListColumnConfig,
+    meta: {resultRevisionCommandsEnabled},
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
@@ -425,7 +428,11 @@ export default function RunTestList() {
 
   const getSelectedRows = () => {
     return table.getSelectedRowModel().rows.map((row) => {
-      return {testId: row.original.testId}
+      return {
+        testId: row.original.testId,
+        testRunMapId: row.original.testRunMapId,
+        resultMapCount: row.original.resultMapCount,
+      }
     })
   }
 
@@ -445,7 +452,7 @@ export default function RunTestList() {
           ) : (
             <Skeleton className="h-8 w-[250px]" />
           )}
-          
+
           {runData?.status === 'Active' ? (
             <RunActions table={table} runData={runData} />
           ) : (
@@ -458,7 +465,7 @@ export default function RunTestList() {
             )
           )}
         </div>
-        
+
         <RunMetaData testRunsMetaData={testRunsMetaData} />
       </div>
 
@@ -476,6 +483,7 @@ export default function RunTestList() {
             runId={runData?.runId ?? 0}
             onAddResultSubmit={onAddResultSubmit}
             isAddResultEnabled={isAddResultEnabled()}
+            resultRevisionCommandsEnabled={resultRevisionCommandsEnabled}
           />
         )}
 
@@ -499,7 +507,7 @@ export default function RunTestList() {
           hideScrollBar={true}
         />
       </div>
-      
+
       {state !== 'idle' ? <Loader /> : null}
     </div>
   )

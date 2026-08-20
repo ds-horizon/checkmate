@@ -12,6 +12,7 @@ import {
 } from '~/routes/utilities/responseHandler'
 import {getRequestParams} from '../../utilities/utils'
 import {RUN_IS_LOCKED} from '~/constants'
+import {areResultRevisionCommandsEnabled} from '~/services/resultRevisionFlags'
 
 const MarkPassedAsRetestSchema = z.object({
   runId: z.number().gt(0),
@@ -25,6 +26,13 @@ export const action = async ({request}: ActionFunctionArgs) => {
       request,
       resource: API.RunReset,
     })
+
+    if (areResultRevisionCommandsEnabled()) {
+      return responseHandler({
+        error: 'Legacy result writes are disabled',
+        status: 409,
+      })
+    }
 
     const queryData = await getRequestParams<MarkPassedAsRetestAPIType>(
       request,

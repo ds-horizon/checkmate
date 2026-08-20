@@ -61,6 +61,7 @@ export function generateRbacPolicy(): IRbacPolicy[] {
         break
 
       case API.RunUpdateTestStatus:
+      case API.RunSaveTestResult:
       case API.EditTest:
       case API.EditTestsInBulk:
       case API.EditRun:

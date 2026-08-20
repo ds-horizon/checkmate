@@ -22,6 +22,34 @@
       "when": 1785383340174,
       "tag": "0002_chubby_shape",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1787180347075,
+      "tag": "0003_supreme_siren",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1787193771061,
+      "tag": "0004_known_hardball",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1787194537938,
+      "tag": "0005_tearful_captain_america",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1787194703231,
+      "tag": "0006_curly_dormammu",
+      "breakpoints": true
     }
   ]
 }

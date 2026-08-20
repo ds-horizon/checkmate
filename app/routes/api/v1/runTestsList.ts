@@ -7,8 +7,11 @@ import {
   responseHandler,
 } from '~/routes/utilities/responseHandler'
 import {API} from '../../utilities/api'
+import {areResultRevisionCommandsEnabled} from '~/services/resultRevisionFlags'
 
 export interface Tests {
+  testRunMapId: number
+  resultMapCount: number
   automationStatus: string
   testedBy: string
   testId: number
@@ -32,6 +35,7 @@ export interface RunTestListResponseType {
   data?: {
     testsList: Tests[]
     totalCount: number
+    resultRevisionCommandsEnabled: boolean
     error: any
   }
   status: number
@@ -49,7 +53,10 @@ export async function loader({params, request}: LoaderFunctionArgs) {
 
     const testRunsData = await TestRunsController.getAllTestRuns(searchParams)
     return responseHandler({
-      data: testRunsData,
+      data: {
+        ...testRunsData,
+        resultRevisionCommandsEnabled: areResultRevisionCommandsEnabled(),
+      },
       status: 200,
     })
   } catch (error: any) {

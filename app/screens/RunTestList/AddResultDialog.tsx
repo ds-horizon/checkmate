@@ -30,7 +30,11 @@ const TEST_STATUS_OPTIONS = [
 ]
 
 interface AddResultsDialogProps {
-  getSelectedRows: () => {testId: number}[]
+  getSelectedRows: () => {
+    testId: number
+    testRunMapId?: number
+    resultMapCount?: number
+  }[]
   runId: number
   onAddResultSubmit?: () => void
   variant?: 'bulkUpdate' | 'detailPageUpdate' | 'runRowUpdate'
@@ -39,6 +43,7 @@ interface AddResultsDialogProps {
   currAttachments?: string[] | null
   isAddResultEnabled?: boolean
   containerClassName?: string
+  resultRevisionCommandsEnabled?: boolean
 }
 
 interface HistoryResponse {
@@ -46,7 +51,10 @@ interface HistoryResponse {
   error?: string | null
 }
 
-const createExistingAttachment = (url: string, index: number): ResultAttachment => ({
+const createExistingAttachment = (
+  url: string,
+  index: number,
+): ResultAttachment => ({
   id: `existing-${index}-${url}`,
   url,
   fileName: getAttachmentFileName(url) || `Screenshot ${index + 1}`,
@@ -65,6 +73,7 @@ export const AddResultDialog = ({
   currAttachments,
   isAddResultEnabled = true,
   containerClassName,
+  resultRevisionCommandsEnabled = false,
 }: AddResultsDialogProps) => {
   const updateStatusFetcher = useFetcher<any>()
   const [status, setStatus] = useState(currStatus ?? '')
@@ -76,7 +85,9 @@ export const AddResultDialog = ({
     useState(false)
   const [isAttachmentHistoryPending, setIsAttachmentHistoryPending] =
     useState(false)
-  const [attachmentLoadError, setAttachmentLoadError] = useState<string | null>(null)
+  const [attachmentLoadError, setAttachmentLoadError] = useState<string | null>(
+    null,
+  )
   const [saveError, setSaveError] = useState<string | null>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -90,6 +101,8 @@ export const AddResultDialog = ({
   const saveRequestedRef = useRef(false)
   const previousFetcherStateRef = useRef(updateStatusFetcher.state)
   const committedRef = useRef(false)
+  const resultCommandIdRef = useRef<string | null>(null)
+  const resultCommandPayloadRef = useRef<string | null>(null)
   const fieldId = useId().replace(/:/g, '')
 
   const isEditing = variant === 'detailPageUpdate' || variant === 'runRowUpdate'
@@ -144,9 +157,12 @@ export const AddResultDialog = ({
       setIsAttachmentHistoryPending(false)
     } catch (error: any) {
       if (sessionId !== sessionIdRef.current || !isDialogOpenRef.current) return
-      setAttachmentLoadError(error?.message ?? 'Unable to load existing screenshots')
+      setAttachmentLoadError(
+        error?.message ?? 'Unable to load existing screenshots',
+      )
     } finally {
-      if (sessionId === sessionIdRef.current) setIsLoadingExistingAttachments(false)
+      if (sessionId === sessionIdRef.current)
+        setIsLoadingExistingAttachments(false)
     }
   }
 
@@ -159,7 +175,10 @@ export const AddResultDialog = ({
       cancelledUploadIdsRef.current = new Set()
       saveRequestedRef.current = false
       committedRef.current = false
-      const shouldLoadExistingAttachments = isEditing && currAttachments === undefined
+      resultCommandIdRef.current = null
+      resultCommandPayloadRef.current = null
+      const shouldLoadExistingAttachments =
+        isEditing && currAttachments === undefined
       attachmentHistoryPendingRef.current = shouldLoadExistingAttachments
       setIsAttachmentHistoryPending(shouldLoadExistingAttachments)
       setIsUploadingAttachment(false)
@@ -177,12 +196,16 @@ export const AddResultDialog = ({
     attachmentHistoryPendingRef.current = false
     setIsAttachmentHistoryPending(false)
     cancelledUploadIdsRef.current = new Set(
-      attachments.filter((attachment) => !attachment.isExisting).map((attachment) => attachment.id),
+      attachments
+        .filter((attachment) => !attachment.isExisting)
+        .map((attachment) => attachment.id),
     )
     activeUploadIdsRef.current.clear()
     setIsUploadingAttachment(false)
     if (!committedRef.current) cleanupDraftAttachments(attachments)
     setAttachments([])
+    resultCommandIdRef.current = null
+    resultCommandPayloadRef.current = null
   }
 
   useEffect(() => {
@@ -225,6 +248,8 @@ export const AddResultDialog = ({
       }).catch(() => {})
     })
     committedRef.current = true
+    resultCommandIdRef.current = null
+    resultCommandPayloadRef.current = null
     revokeDraftPreviewUrls(attachments)
     setAttachments([])
     saveRequestedRef.current = false
@@ -232,11 +257,19 @@ export const AddResultDialog = ({
     setIsDialogOpen(false)
     isDialogOpenRef.current = false
     onAddResultSubmit?.()
-  }, [attachments, removedExistingKeys, updateStatusFetcher.data, updateStatusFetcher.state, onAddResultSubmit])
+  }, [
+    attachments,
+    removedExistingKeys,
+    updateStatusFetcher.data,
+    updateStatusFetcher.state,
+    onAddResultSubmit,
+  ])
 
   const uploadFile = async (file: File) => {
     const sessionId = sessionIdRef.current
-    const attachmentId = `draft-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const attachmentId = `draft-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2)}`
     const previewUrl = URL.createObjectURL(file)
     cancelledUploadIdsRef.current.delete(attachmentId)
     setAttachments((prev) => [
@@ -259,6 +292,15 @@ export const AddResultDialog = ({
     try {
       const formData = new FormData()
       formData.append('file', file)
+      if (resultRevisionCommandsEnabled) {
+        const [selectedRow] = getSelectedRows()
+        if (!selectedRow?.testRunMapId || selectedRow.resultMapCount !== 1) {
+          throw new Error(
+            'A single reconciled result is required before uploading screenshots.',
+          )
+        }
+        formData.append('testRunMapId', String(selectedRow.testRunMapId))
+      }
       const response = await fetch(`/${API.UploadAttachment}`, {
         method: 'POST',
         body: formData,
@@ -374,7 +416,9 @@ export const AddResultDialog = ({
     }
 
     if (isCommentRemovalBlocked) {
-      setSaveError('Existing comments can be changed, but not removed yet. Keep a value to save.')
+      setSaveError(
+        'Existing comments can be changed, but not removed yet. Keep a value to save.',
+      )
       return
     }
 
@@ -409,6 +453,56 @@ export const AddResultDialog = ({
       attachments: attachmentKeys,
     }))
 
+    if (resultRevisionCommandsEnabled) {
+      if (selectedRows.length !== 1) {
+        setSaveError(
+          'Bulk result updates are unavailable while atomic result saving is enabled.',
+        )
+        return
+      }
+
+      const [selectedRow] = selectedRows
+      if (!selectedRow.testRunMapId || selectedRow.resultMapCount !== 1) {
+        setSaveError(
+          'This result mapping must be reconciled before it can be saved safely.',
+        )
+        return
+      }
+
+      const payloadKey = JSON.stringify({
+        testRunMapId: selectedRow.testRunMapId,
+        status,
+        comment,
+        attachmentKeys: [...attachmentKeys].sort(),
+      })
+      if (
+        resultCommandIdRef.current === null ||
+        resultCommandPayloadRef.current !== payloadKey
+      ) {
+        resultCommandIdRef.current = globalThis.crypto.randomUUID()
+        resultCommandPayloadRef.current = payloadKey
+      }
+
+      setSaveError(null)
+      setIsSaving(true)
+      saveRequestedRef.current = true
+      updateStatusFetcher.submit(
+        {
+          resultCommandId: resultCommandIdRef.current,
+          testRunMapId: selectedRow.testRunMapId,
+          status,
+          comment,
+          attachmentKeys,
+        },
+        {
+          method: 'PUT',
+          action: `/${API.RunSaveTestResult}`,
+          encType: 'application/json',
+        },
+      )
+      return
+    }
+
     setSaveError(null)
     setIsSaving(true)
     saveRequestedRef.current = true
@@ -426,7 +520,9 @@ export const AddResultDialog = ({
     )
   }
 
-  const triggerComponent = (triggerVariant: AddResultsDialogProps['variant']) => {
+  const triggerComponent = (
+    triggerVariant: AddResultsDialogProps['variant'],
+  ) => {
     if (triggerVariant === 'detailPageUpdate') {
       return currStatus ? (
         <Button
@@ -439,7 +535,12 @@ export const AddResultDialog = ({
           }}
         >
           {currStatus}
-          <ChevronDown size={22} strokeWidth={2} className="ml-2" aria-hidden="true" />
+          <ChevronDown
+            size={22}
+            strokeWidth={2}
+            className="ml-2"
+            aria-hidden="true"
+          />
         </Button>
       ) : null
     }
@@ -499,7 +600,10 @@ export const AddResultDialog = ({
       }
       contentClassName="max-h-[82vh] overflow-y-auto sm:max-w-[560px]"
       contentComponent={
-        <div className="space-y-5 pt-2" aria-busy={isSaving || isUploadingAttachment}>
+        <div
+          className="space-y-5 pt-2"
+          aria-busy={isSaving || isUploadingAttachment}
+        >
           <div className="space-y-2.5">
             <label
               id={`${fieldId}-status-label`}
@@ -516,12 +620,17 @@ export const AddResultDialog = ({
               options={TEST_STATUS_OPTIONS}
             />
             {status === '' && (
-              <p className="pt-1 text-xs text-slate-500">Please select a test status</p>
+              <p className="pt-1 text-xs text-slate-500">
+                Please select a test status
+              </p>
             )}
           </div>
 
           <div className="space-y-2.5">
-            <label htmlFor={`${fieldId}-comment`} className="text-sm font-semibold text-slate-700">
+            <label
+              htmlFor={`${fieldId}-comment`}
+              className="text-sm font-semibold text-slate-700"
+            >
               Comment
             </label>
             <Textarea
@@ -530,12 +639,18 @@ export const AddResultDialog = ({
               value={comment}
               onChange={(e) => setComment(e.target.value)}
               aria-describedby={`${fieldId}-comment-hint${
-                isCommentRemovalBlocked ? ` ${fieldId}-comment-removal-hint` : ''
+                isCommentRemovalBlocked
+                  ? ` ${fieldId}-comment-removal-hint`
+                  : ''
               }`}
               className="min-h-[160px] resize-y leading-relaxed"
             />
-            <p id={`${fieldId}-comment-hint`} className="pt-1 text-xs text-slate-500">
-              Optional. Long notes in English or Japanese will wrap automatically.
+            <p
+              id={`${fieldId}-comment-hint`}
+              className="pt-1 text-xs text-slate-500"
+            >
+              Optional. Long notes in English or Japanese will wrap
+              automatically.
             </p>
             {isCommentRemovalBlocked && (
               <p
@@ -543,17 +658,23 @@ export const AddResultDialog = ({
                 className="text-sm text-amber-700"
                 role="alert"
               >
-                Existing comments can be changed, but not removed yet. Keep a value to save.
+                Existing comments can be changed, but not removed yet. Keep a
+                value to save.
               </p>
             )}
           </div>
 
           <div className="space-y-2.5">
             <div className="flex items-baseline justify-between gap-3">
-              <label htmlFor={`${fieldId}-attachments`} className="text-sm font-semibold text-slate-700">
+              <label
+                htmlFor={`${fieldId}-attachments`}
+                className="text-sm font-semibold text-slate-700"
+              >
                 Screenshots
               </label>
-              <span className="text-xs text-slate-500">PNG, JPG, GIF, or WebP · up to 10MB</span>
+              <span className="text-xs text-slate-500">
+                PNG, JPG, GIF, or WebP · up to 10MB
+              </span>
             </div>
             <input
               id={`${fieldId}-attachments`}
@@ -561,15 +682,24 @@ export const AddResultDialog = ({
               accept="image/png,image/jpeg,image/gif,image/webp"
               multiple
               disabled={
-                isSaving || isAttachmentHistoryPending || isLoadingExistingAttachments
+                isSaving ||
+                isAttachmentHistoryPending ||
+                isLoadingExistingAttachments
               }
               onChange={onFileSelected}
               aria-describedby={`${fieldId}-attachments-hint`}
               className="flex min-h-10 w-full cursor-pointer rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white hover:border-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 disabled:cursor-not-allowed disabled:opacity-60"
             />
             {isLoadingExistingAttachments && (
-              <p className="flex items-center gap-1.5 text-xs text-slate-500" role="status">
-                <Loader2 size={13} className="animate-spin" aria-hidden="true" />
+              <p
+                className="flex items-center gap-1.5 text-xs text-slate-500"
+                role="status"
+              >
+                <Loader2
+                  size={13}
+                  className="animate-spin"
+                  aria-hidden="true"
+                />
                 Loading existing screenshots...
               </p>
             )}
@@ -597,7 +727,10 @@ export const AddResultDialog = ({
               emptyLabel="No screenshots attached yet"
               labelledBy={`${fieldId}-attachments`}
             />
-            <p id={`${fieldId}-attachments-hint`} className="pt-1 text-xs text-slate-500">
+            <p
+              id={`${fieldId}-attachments-hint`}
+              className="pt-1 text-xs text-slate-500"
+            >
               {isAttachmentHistoryPending
                 ? attachmentLoadError
                   ? 'Retry existing screenshots before adding new files.'
@@ -607,7 +740,10 @@ export const AddResultDialog = ({
           </div>
 
           {saveError && (
-            <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">
+            <p
+              className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+              role="alert"
+            >
               {saveError}
             </p>
           )}
@@ -616,7 +752,12 @@ export const AddResultDialog = ({
       footerComponent={
         <div className="flex w-full flex-col-reverse gap-3 pt-2 sm:flex-row">
           <DialogClose asChild>
-            <Button type="button" variant="outline" className="flex-1" disabled={isSaving}>
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1"
+              disabled={isSaving}
+            >
               Cancel
             </Button>
           </DialogClose>
@@ -639,7 +780,11 @@ export const AddResultDialog = ({
           >
             {isSaving ? (
               <>
-                <Loader2 size={16} className="mr-2 animate-spin" aria-hidden="true" />
+                <Loader2
+                  size={16}
+                  className="mr-2 animate-spin"
+                  aria-hidden="true"
+                />
                 Saving...
               </>
             ) : isEditing ? (

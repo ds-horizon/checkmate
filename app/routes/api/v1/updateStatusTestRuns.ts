@@ -11,6 +11,7 @@ import {
 } from '~/routes/utilities/responseHandler'
 import {getRequestParams} from '../../utilities/utils'
 import {RUN_IS_LOCKED} from '~/constants'
+import {areResultRevisionCommandsEnabled} from '~/services/resultRevisionFlags'
 
 const UpdateStatusTestRunsRequestSchema = z.object({
   runId: z.number().gt(0),
@@ -40,6 +41,13 @@ export const action = async ({request}: ActionFunctionArgs) => {
       request,
       resource: API.RunUpdateTestStatus,
     })
+
+    if (areResultRevisionCommandsEnabled()) {
+      return responseHandler({
+        error: 'Legacy result writes are disabled',
+        status: 409,
+      })
+    }
 
     if (request.headers.get('content-type') !== 'application/json') {
       return responseHandler({

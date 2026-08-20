@@ -150,6 +150,13 @@ const TestRunsDao = {
 
       let testRunsQuery = dbClient
         .select({
+          testRunMapId: sql<number>`MIN(${testRunMap.testRunMapId})`.as(
+            'testRunMapId',
+          ),
+          resultMapCount:
+            sql<number>`COUNT(DISTINCT ${testRunMap.testRunMapId})`.as(
+              'resultMapCount',
+            ),
           testStatus: sql`MAX(${testRunMap.status})`.as('testStatus'),
           comment: sql`MAX(${testRunMap.comment})`.as('comment'),
           screenshotCount: sql<number>`COALESCE(

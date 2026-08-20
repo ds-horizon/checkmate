@@ -9,16 +9,38 @@ import {
 import {getRequestParams} from '~/routes/utilities/utils'
 import {API} from '~/routes/utilities/api'
 import {RUN_IS_LOCKED} from '~/constants'
+import {areResultRevisionCommandsEnabled} from '~/services/resultRevisionFlags'
 
 jest.mock('@controllers/runs.controller')
 jest.mock('~/dataController/testRuns.controller')
 jest.mock('~/routes/utilities/responseHandler')
 jest.mock('~/routes/utilities/checkForUserAndAccess')
 jest.mock('~/routes/utilities/utils')
+jest.mock('~/services/resultRevisionFlags')
 
 describe('Update Status Test Runs - Action Function', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    ;(areResultRevisionCommandsEnabled as jest.Mock).mockReturnValue(false)
+  })
+
+  it('disables the legacy writer when revision commands are enabled', async () => {
+    const request = new Request('http://localhost', {
+      method: 'POST',
+      headers: {'content-type': 'application/json'},
+      body: '{}',
+    })
+    ;(areResultRevisionCommandsEnabled as jest.Mock).mockReturnValue(true)
+    ;(responseHandler as jest.Mock).mockImplementation((response) => response)
+
+    const response = await action({request} as any)
+
+    expect(response).toEqual({
+      error: 'Legacy result writes are disabled',
+      status: 409,
+    })
+    expect(getRequestParams).not.toHaveBeenCalled()
+    expect(TestRunsController.updateStatusTestRuns).not.toHaveBeenCalled()
   })
 
   it('should successfully update test run statuses for valid input', async () => {

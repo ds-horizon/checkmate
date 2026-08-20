@@ -8,16 +8,21 @@ import {
 } from '~/routes/utilities/responseHandler'
 import {checkForTestId, checkForRunId} from '~/routes/utilities/utils'
 import {API} from '~/routes/utilities/api'
+import {areResultRevisionCommandsEnabled} from '~/services/resultRevisionFlags'
+import {assertResultAttachmentReadScope} from '~/services/resultAttachments'
 
 jest.mock('@controllers/testRuns.controller')
 jest.mock('~/routes/utilities/responseHandler')
 jest.mock('~/routes/utilities/checkForUserAndAccess')
 jest.mock('~/routes/utilities/utils')
 jest.mock('@services/s3')
+jest.mock('~/services/resultRevisionFlags')
+jest.mock('~/services/resultAttachments')
 
 describe('Get Test Status History in Run - Loader Function', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    ;(areResultRevisionCommandsEnabled as jest.Mock).mockReturnValue(false)
   })
 
   it('should successfully fetch test status history for a valid testId and runId', async () => {
@@ -104,6 +109,36 @@ describe('Get Test Status History in Run - Loader Function', () => {
         },
       ],
       status: 200,
+    })
+  })
+
+  it('keeps valid legacy screenshots readable when the flag is enabled', async () => {
+    const request = new Request('http://localhost?testId=123&runId=456', {
+      method: 'GET',
+    })
+    const legacyKey =
+      'test-run-attachments/123e4567-e89b-12d3-a456-426614174000-legacy.png'
+    const mockTestStatusData = [{status: 'Passed', attachments: [legacyKey]}]
+
+    ;(getUserAndCheckAccess as jest.Mock).mockResolvedValue(true)
+    ;(checkForTestId as jest.Mock).mockReturnValue(true)
+    ;(checkForRunId as jest.Mock).mockReturnValue(true)
+    ;(areResultRevisionCommandsEnabled as jest.Mock).mockReturnValue(true)
+    ;(assertResultAttachmentReadScope as jest.Mock).mockResolvedValue(undefined)
+    ;(
+      TestRunsController.getTestStatusHistoryOfRun as jest.Mock
+    ).mockResolvedValue(mockTestStatusData)
+    ;(getSignedAttachmentUrl as jest.Mock).mockResolvedValue('https://signed')
+    ;(responseHandler as jest.Mock).mockImplementation((response) => response)
+
+    await expect(loader({params: {}, request} as any)).resolves.toEqual({
+      data: [{status: 'Passed', attachments: ['https://signed']}],
+      status: 200,
+    })
+    expect(assertResultAttachmentReadScope).toHaveBeenCalledWith({
+      objectKeys: [legacyKey],
+      runId: 456,
+      testId: 123,
     })
   })
 

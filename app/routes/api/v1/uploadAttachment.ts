@@ -3,7 +3,15 @@ import {
   unstable_createMemoryUploadHandler,
   unstable_parseMultipartFormData,
 } from '@remix-run/node'
+import {createHash} from 'node:crypto'
+import {
+  ResultAttachmentError,
+  recordResultAttachmentUploaded,
+  recordResultAttachmentUploadFailure,
+  registerResultAttachmentUpload,
+} from '@services/resultAttachments'
 import {buildAttachmentKey, uploadAttachment} from '@services/s3'
+import {areResultRevisionCommandsEnabled} from '~/services/resultRevisionFlags'
 import {API} from '~/routes/utilities/api'
 import {getUserAndCheckAccess} from '~/routes/utilities/checkForUserAndAccess'
 import {
@@ -21,7 +29,7 @@ const ALLOWED_CONTENT_TYPES = [
 
 export const action = async ({request}: ActionFunctionArgs) => {
   try {
-    await getUserAndCheckAccess({
+    const user = await getUserAndCheckAccess({
       request,
       resource: API.UploadAttachment,
     })
@@ -64,6 +72,47 @@ export const action = async ({request}: ActionFunctionArgs) => {
     const key = buildAttachmentKey(file.name)
     const buffer = Buffer.from(await file.arrayBuffer())
 
+    if (areResultRevisionCommandsEnabled()) {
+      const rawTestRunMapId = formData.get('testRunMapId')
+      const testRunMapId =
+        typeof rawTestRunMapId === 'string' ? Number(rawTestRunMapId) : NaN
+      if (!Number.isInteger(testRunMapId) || testRunMapId < 1) {
+        return responseHandler({
+          error: 'A valid result mapping is required',
+          status: 400,
+        })
+      }
+      if (!user?.userId) {
+        return responseHandler({
+          error: 'Authenticated actor is required',
+          status: 401,
+        })
+      }
+
+      await registerResultAttachmentUpload({
+        objectKey: key,
+        testRunMapId,
+        uploaderUserId: user.userId,
+        contentType: file.type,
+        byteSize: buffer.byteLength,
+        sha256: createHash('sha256').update(buffer).digest('hex'),
+      })
+
+      try {
+        await uploadAttachment({
+          key,
+          body: buffer,
+          contentType: file.type,
+        })
+      } catch (error) {
+        await recordResultAttachmentUploadFailure(key, error)
+        throw error
+      }
+      await recordResultAttachmentUploaded(key)
+
+      return responseHandler({data: {key}, status: 200})
+    }
+
     await uploadAttachment({
       key,
       body: buffer,
@@ -75,6 +124,9 @@ export const action = async ({request}: ActionFunctionArgs) => {
       status: 200,
     })
   } catch (error: any) {
+    if (error instanceof ResultAttachmentError) {
+      return responseHandler({error: error.message, status: error.status})
+    }
     return errorResponseHandler(error)
   }
 }

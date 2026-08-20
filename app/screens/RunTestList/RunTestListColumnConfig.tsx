@@ -129,7 +129,7 @@ export const RunTestListColumnConfig: ColumnDef<Tests>[] = [
     header: () => (
       <HeaderComponent heading={TestListingColumns.status} position="center" />
     ),
-    cell: ({row}) => {
+    cell: ({row, table}) => {
       const params = useParams()
       const runId = +(params['runId'] ?? 0)
       const comment = row.original.comment
@@ -139,15 +139,30 @@ export const RunTestListColumnConfig: ColumnDef<Tests>[] = [
           {row.original.runStatus === 'Active' ? (
             <AddResultDialog
               getSelectedRows={() => {
-                return [{testId: row.original.testId}]
+                return [
+                  {
+                    testId: row.original.testId,
+                    testRunMapId: row.original.testRunMapId,
+                    resultMapCount: row.original.resultMapCount,
+                  },
+                ]
               }}
               runId={runId}
               variant="runRowUpdate"
               currStatus={row.original.testStatus as TestStatusType}
               currComment={comment}
+              resultRevisionCommandsEnabled={Boolean(
+                (
+                  table.options.meta as
+                    | {resultRevisionCommandsEnabled?: boolean}
+                    | undefined
+                )?.resultRevisionCommandsEnabled,
+              )}
             />
           ) : (
-            <span className="text-sm text-slate-700">{row.original.testStatus}</span>
+            <span className="text-sm text-slate-700">
+              {row.original.testStatus}
+            </span>
           )}
           {comment ? (
             <div className="w-full max-w-[240px] rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-left">
@@ -163,7 +178,9 @@ export const RunTestListColumnConfig: ColumnDef<Tests>[] = [
             </div>
           ) : hasScreenshots ? (
             <div className="flex w-full max-w-[240px] items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-left">
-              <span className="min-w-0 text-[11px] text-slate-400">No result note</span>
+              <span className="min-w-0 text-[11px] text-slate-400">
+                No result note
+              </span>
               <ResultScreenshotCount count={row.original.screenshotCount} />
             </div>
           ) : (

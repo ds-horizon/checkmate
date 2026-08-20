@@ -7,15 +7,18 @@ import {
   errorResponseHandler,
 } from '~/routes/utilities/responseHandler'
 import {API} from '~/routes/utilities/api'
+import {areResultRevisionCommandsEnabled} from '~/services/resultRevisionFlags'
 
 jest.mock('@route/utils/getSearchParams')
 jest.mock('~/dataController/testRuns.controller')
 jest.mock('~/routes/utilities/responseHandler')
 jest.mock('~/routes/utilities/checkForUserAndAccess')
+jest.mock('~/services/resultRevisionFlags')
 
 describe('Get Run Tests - Loader Function', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    ;(areResultRevisionCommandsEnabled as jest.Mock).mockReturnValue(true)
   })
 
   it('should successfully fetch test runs data for valid search parameters', async () => {
@@ -26,10 +29,13 @@ describe('Get Run Tests - Loader Function', () => {
       },
     )
     const mockSearchParams = {runId: 123, page: 1, pageSize: 10}
-    const mockTestRunsData = [
-      {testId: 1, status: 'Passed', runId: 123},
-      {testId: 2, status: 'Failed', runId: 123},
-    ]
+    const mockTestRunsData = {
+      testsList: [
+        {testId: 1, status: 'Passed', runId: 123},
+        {testId: 2, status: 'Failed', runId: 123},
+      ],
+      totalCount: 2,
+    }
 
     ;(getUserAndCheckAccess as jest.Mock).mockResolvedValue(true)
     ;(SearchParams.getRunTests as jest.Mock).mockReturnValue(mockSearchParams)
@@ -49,7 +55,10 @@ describe('Get Run Tests - Loader Function', () => {
       mockSearchParams,
     )
     expect(responseHandler).toHaveBeenCalledWith({
-      data: mockTestRunsData,
+      data: {
+        ...mockTestRunsData,
+        resultRevisionCommandsEnabled: true,
+      },
       status: 200,
     })
   })

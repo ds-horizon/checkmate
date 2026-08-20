@@ -1,6 +1,11 @@
 import TestRunsController from '@controllers/testRuns.controller'
 import {LoaderFunctionArgs} from '@remix-run/node'
+import {
+  ResultAttachmentError,
+  assertResultAttachmentReadScope,
+} from '@services/resultAttachments'
 import {getSignedAttachmentUrl} from '@services/s3'
+import {areResultRevisionCommandsEnabled} from '~/services/resultRevisionFlags'
 import {API} from '~/routes/utilities/api'
 import {getUserAndCheckAccess} from '~/routes/utilities/checkForUserAndAccess'
 import {
@@ -39,6 +44,16 @@ export async function loader({params, request}: LoaderFunctionArgs) {
       testId,
     })
 
+    if (areResultRevisionCommandsEnabled()) {
+      await assertResultAttachmentReadScope({
+        objectKeys: (testStatusData ?? []).flatMap(
+          (entry) => entry.attachments ?? [],
+        ),
+        runId,
+        testId,
+      })
+    }
+
     const testStatusDataWithSignedAttachments = await Promise.all(
       (testStatusData ?? []).map(async (entry) => {
         if (!entry.attachments || entry.attachments.length === 0) {
@@ -56,6 +71,9 @@ export async function loader({params, request}: LoaderFunctionArgs) {
       status: 200,
     })
   } catch (error: any) {
+    if (error instanceof ResultAttachmentError) {
+      return responseHandler({error: error.message, status: error.status})
+    }
     return errorResponseHandler(error)
   }
 }

@@ -114,6 +114,7 @@ export const testRunMap = mysqlTable(
       .default(sql`CURRENT_TIMESTAMP`)
       .onUpdateNow(),
     comment: text('comment'),
+    currentResultRevisionId: int('currentResultRevisionId'),
   },
   (testRunMap) => {
     return {
@@ -121,6 +122,9 @@ export const testRunMap = mysqlTable(
       testRunMapStatusIndex: index('testRunMapStatusIndex').on(
         testRunMap.status,
       ),
+      testRunMapCurrentResultRevisionIndex: index(
+        'testRunMapCurrentResultRevisionIndex',
+      ).on(testRunMap.currentResultRevisionId),
     }
   },
 )

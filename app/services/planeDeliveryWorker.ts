@@ -1,4 +1,7 @@
-import type {ResultRevisionCommittedPayload} from '@schema/resultRevisions'
+import type {
+  PlaneDefectIntent,
+  ResultRevisionCommittedPayload,
+} from '@schema/resultRevisions'
 import {
   claimResultOutboxEvents,
   ClaimedResultOutboxEvent,
@@ -16,13 +19,6 @@ const DEFAULT_BATCH_SIZE = 10
 const MAX_BATCH_SIZE = 100
 const DEFAULT_LEASE_MS = 60_000
 const MIN_LEASE_SAFETY_MS = 5_000
-
-export type PlaneDefectIntent = {
-  create: true
-  title: string
-  description: string
-  priority: 'urgent' | 'high' | 'medium' | 'low' | 'none'
-}
 
 export type PlaneDeliveryPayload = ResultRevisionCommittedPayload & {
   planeDefectIntent?: PlaneDefectIntent
@@ -94,14 +90,24 @@ export const runPlaneDeliveryBatch = async ({
 
   const batchSize = limit ?? DEFAULT_BATCH_SIZE
   const effectiveLeaseMs = leaseMs ?? DEFAULT_LEASE_MS
-  if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > MAX_BATCH_SIZE) {
-    throw new Error(`Plane delivery batch size must be between 1 and ${MAX_BATCH_SIZE}`)
+  if (
+    !Number.isInteger(batchSize) ||
+    batchSize < 1 ||
+    batchSize > MAX_BATCH_SIZE
+  ) {
+    throw new Error(
+      `Plane delivery batch size must be between 1 and ${MAX_BATCH_SIZE}`,
+    )
   }
   if (!Number.isInteger(adapter.maxDeliveryMs) || adapter.maxDeliveryMs < 1) {
-    throw new Error('Plane adapter max delivery time must be a positive integer')
+    throw new Error(
+      'Plane adapter max delivery time must be a positive integer',
+    )
   }
   if (effectiveLeaseMs < adapter.maxDeliveryMs + MIN_LEASE_SAFETY_MS) {
-    throw new Error('Plane outbox lease must exceed the adapter delivery timeout')
+    throw new Error(
+      'Plane outbox lease must exceed the adapter delivery timeout',
+    )
   }
 
   for (let index = 0; index < batchSize; index += 1) {

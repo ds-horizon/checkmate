@@ -1,6 +1,7 @@
 import {
   arePlaneApiWritesEnabled,
   areResultRevisionCommandsEnabled,
+  isPlaneDefectCreationEnabled,
   isPlaneDeliveryWorkerEnabled,
 } from '../resultRevisionFlags'
 
@@ -32,20 +33,36 @@ describe('Plane integration flags', () => {
   it('keeps the worker and provider writes disabled by default', () => {
     expect(isPlaneDeliveryWorkerEnabled({})).toBe(false)
     expect(arePlaneApiWritesEnabled({})).toBe(false)
+    expect(isPlaneDefectCreationEnabled({})).toBe(false)
   })
 
   it('accepts only an explicit lowercase true for each boundary', () => {
     expect(
       isPlaneDeliveryWorkerEnabled({PLANE_DELIVERY_WORKER_ENABLED: 'true'}),
     ).toBe(true)
+    expect(arePlaneApiWritesEnabled({PLANE_API_WRITES_ENABLED: 'true'})).toBe(
+      true,
+    )
     expect(
-      arePlaneApiWritesEnabled({PLANE_API_WRITES_ENABLED: 'true'}),
+      isPlaneDefectCreationEnabled({
+        PLANE_DEFECT_CREATION_ENABLED: 'true',
+      }),
+    ).toBe(false)
+    expect(
+      isPlaneDefectCreationEnabled({
+        PLANE_DEFECT_CREATION_ENABLED: 'true',
+        PLANE_DELIVERY_WORKER_ENABLED: 'true',
+        PLANE_API_WRITES_ENABLED: 'true',
+      }),
     ).toBe(true)
     expect(
       isPlaneDeliveryWorkerEnabled({PLANE_DELIVERY_WORKER_ENABLED: 'TRUE'}),
     ).toBe(false)
+    expect(arePlaneApiWritesEnabled({PLANE_API_WRITES_ENABLED: '1'})).toBe(
+      false,
+    )
     expect(
-      arePlaneApiWritesEnabled({PLANE_API_WRITES_ENABLED: '1'}),
+      isPlaneDefectCreationEnabled({PLANE_DEFECT_CREATION_ENABLED: 'TRUE'}),
     ).toBe(false)
   })
 })

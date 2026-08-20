@@ -5,7 +5,10 @@ import {
   responseHandler,
 } from '~/routes/utilities/responseHandler'
 import {getRequestParams} from '~/routes/utilities/utils'
-import {areResultRevisionCommandsEnabled} from '~/services/resultRevisionFlags'
+import {
+  areResultRevisionCommandsEnabled,
+  isPlaneDefectCreationEnabled,
+} from '~/services/resultRevisionFlags'
 import {ResultCommandError, saveHumanResult} from '~/services/resultCommands'
 import {API} from '~/routes/utilities/api'
 
@@ -32,11 +35,18 @@ const makeRequest = (contentType = 'application/json') =>
     body: JSON.stringify(requestData),
   })
 
+const makeActionArgs = (request: Request): Parameters<typeof action>[0] => ({
+  request,
+  params: {},
+  context: {},
+})
+
 describe('Save Test Result - Action Function', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     ;(getUserAndCheckAccess as jest.Mock).mockResolvedValue({userId: 23})
     ;(areResultRevisionCommandsEnabled as jest.Mock).mockReturnValue(true)
+    ;(isPlaneDefectCreationEnabled as jest.Mock).mockReturnValue(false)
     ;(getRequestParams as jest.Mock).mockResolvedValue(requestData)
     ;(responseHandler as jest.Mock).mockImplementation((response) => response)
   })
@@ -44,7 +54,7 @@ describe('Save Test Result - Action Function', () => {
   it('is unavailable while the feature flag is disabled', async () => {
     ;(areResultRevisionCommandsEnabled as jest.Mock).mockReturnValue(false)
 
-    const response = await action({request: makeRequest()} as any)
+    const response = await action(makeActionArgs(makeRequest()))
 
     expect(response).toEqual({error: 'Not found', status: 404})
     expect(saveHumanResult).not.toHaveBeenCalled()
@@ -54,7 +64,7 @@ describe('Save Test Result - Action Function', () => {
     const saved = {resultRevisionId: 41, replayed: false}
     ;(saveHumanResult as jest.Mock).mockResolvedValue(saved)
 
-    const response = await action({request: makeRequest()} as any)
+    const response = await action(makeActionArgs(makeRequest()))
 
     expect(getUserAndCheckAccess).toHaveBeenCalledWith({
       request: expect.any(Request),
@@ -67,10 +77,39 @@ describe('Save Test Result - Action Function', () => {
     expect(response).toEqual({data: saved, status: 200})
   })
 
+  it('rejects defect creation intent while its separate flag is disabled', async () => {
+    ;(getRequestParams as jest.Mock).mockResolvedValue({
+      ...requestData,
+      createPlaneDefect: true,
+    })
+
+    const response = await action(makeActionArgs(makeRequest()))
+
+    expect(response).toEqual({error: 'Not found', status: 404})
+    expect(saveHumanResult).not.toHaveBeenCalled()
+  })
+
+  it('passes enabled defect creation intent to the domain service', async () => {
+    ;(isPlaneDefectCreationEnabled as jest.Mock).mockReturnValue(true)
+    ;(getRequestParams as jest.Mock).mockResolvedValue({
+      ...requestData,
+      createPlaneDefect: true,
+    })
+    ;(saveHumanResult as jest.Mock).mockResolvedValue({resultRevisionId: 41})
+
+    await action(makeActionArgs(makeRequest()))
+
+    expect(saveHumanResult).toHaveBeenCalledWith({
+      ...requestData,
+      createPlaneDefect: true,
+      actorUserId: 23,
+    })
+  })
+
   it('rejects requests without an authenticated actor ID', async () => {
     ;(getUserAndCheckAccess as jest.Mock).mockResolvedValue({})
 
-    const response = await action({request: makeRequest()} as any)
+    const response = await action(makeActionArgs(makeRequest()))
 
     expect(response).toEqual({
       error: 'Authenticated actor is required',
@@ -80,7 +119,7 @@ describe('Save Test Result - Action Function', () => {
   })
 
   it('rejects non-JSON content', async () => {
-    const response = await action({request: makeRequest('text/plain')} as any)
+    const response = await action(makeActionArgs(makeRequest('text/plain')))
 
     expect(response).toEqual({error: 'Invalid content type', status: 400})
     expect(saveHumanResult).not.toHaveBeenCalled()
@@ -91,7 +130,7 @@ describe('Save Test Result - Action Function', () => {
       new ResultCommandError('Command conflict', 409),
     )
 
-    const response = await action({request: makeRequest()} as any)
+    const response = await action(makeActionArgs(makeRequest()))
 
     expect(response).toEqual({error: 'Command conflict', status: 409})
     expect(errorResponseHandler).not.toHaveBeenCalled()

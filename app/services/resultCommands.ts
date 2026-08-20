@@ -1,7 +1,8 @@
-import {createHash} from 'node:crypto'
+import {createHash, randomUUID} from 'node:crypto'
 import {and, desc, eq, inArray} from 'drizzle-orm'
 import {projects} from '@schema/projects'
 import {
+  defectCycles,
   resultCommands,
   resultAttachmentObjects,
   resultOutbox,
@@ -11,6 +12,7 @@ import {
   ResultRevisionCommittedPayload,
 } from '@schema/resultRevisions'
 import {runs, testRunMap, testRunsStatusHistory} from '@schema/runs'
+import {tests} from '@schema/tests'
 import {users} from '@schema/users'
 import {TestStatusType} from '~/dataController/types'
 import {dbClient} from '~/db/client'
@@ -21,6 +23,7 @@ export type SaveHumanResultCommand = {
   status: TestStatusType
   comment?: string | null
   attachmentKeys?: string[]
+  createPlaneDefect?: boolean
   actorUserId: number
 }
 
@@ -42,6 +45,7 @@ const canonicalCommandPayload = (command: SaveHumanResultCommand) => {
     status,
     comment,
     attachmentKeys,
+    createPlaneDefect,
     actorUserId,
   } = command
   const normalizedAttachmentKeys = [...new Set(attachmentKeys ?? [])].sort()
@@ -53,8 +57,58 @@ const canonicalCommandPayload = (command: SaveHumanResultCommand) => {
     commentIncluded: Object.prototype.hasOwnProperty.call(command, 'comment'),
     comment: comment ?? null,
     attachmentKeys: normalizedAttachmentKeys,
+    ...(createPlaneDefect === true ? {createPlaneDefect: true} : {}),
   })
 }
+
+const PLANE_PROVIDER = 'plane'
+const PLANE_WORKSPACE_ID = 'e36dfd86-953a-4e33-a410-856208893bb9'
+const PLANE_PROJECT_ID = '67726ee5-7d0c-4656-8bc8-b2f8a959d5da'
+
+const isPlaneDefectEligibleStatus = (status: TestStatusType) =>
+  status === TestStatusType.Failed || status === TestStatusType.Retest
+
+const buildPlaneDefectIntent = ({
+  defectCycleId,
+  correlationKey,
+  testTitle,
+  status,
+  runId,
+  testId,
+  revisionNumber,
+  comment,
+  attachmentKeys,
+}: {
+  defectCycleId: number
+  correlationKey: string
+  testTitle: string
+  status: TestStatusType
+  runId: number
+  testId: number
+  revisionNumber: number
+  comment: string | null
+  attachmentKeys: string[]
+}) => ({
+  create: true as const,
+  defectCycleId,
+  correlationKey,
+  title: `${status}: ${testTitle}`.slice(0, 255),
+  description: [
+    `Checkmate result for ${testTitle}`,
+    `Status: ${status}`,
+    `Run ID: ${runId}`,
+    `Test ID: ${testId}`,
+    `Result revision: ${revisionNumber}`,
+    `Correlation: ${correlationKey}`,
+    '',
+    'Result note:',
+    comment?.trim() || '(no comment)',
+    '',
+    `Screenshots retained in Checkmate: ${attachmentKeys.length}`,
+  ].join('\n'),
+  priority: 'none' as const,
+  attachmentKeys,
+})
 
 export const fingerprintResultCommand = (command: SaveHumanResultCommand) =>
   createHash('sha256')
@@ -62,10 +116,16 @@ export const fingerprintResultCommand = (command: SaveHumanResultCommand) =>
     .digest('hex')
 
 const parseOutcome = (outcome: ResultCommandOutcome | string) => {
-  if (typeof outcome === 'string') {
-    return JSON.parse(outcome) as ResultCommandOutcome
+  const parsed =
+    typeof outcome === 'string'
+      ? (JSON.parse(outcome) as ResultCommandOutcome)
+      : outcome
+
+  return {
+    ...parsed,
+    // Receipts written before defect cycles existed do not have this field.
+    defectCycleId: parsed.defectCycleId ?? null,
   }
-  return outcome
 }
 
 export const saveHumanResult = async (
@@ -87,10 +147,13 @@ export const saveHumanResult = async (
         runStatus: runs.status,
         orgId: projects.orgId,
         projectCreatedBy: projects.createdBy,
+        testProjectId: tests.projectId,
+        testTitle: tests.title,
       })
       .from(testRunMap)
       .innerJoin(runs, eq(testRunMap.runId, runs.runId))
       .innerJoin(projects, eq(testRunMap.projectId, projects.projectId))
+      .innerJoin(tests, eq(testRunMap.testId, tests.testId))
       .where(eq(testRunMap.testRunMapId, command.testRunMapId))
       .for('update')
 
@@ -125,7 +188,10 @@ export const saveHumanResult = async (
     if (aggregate.mapRunId === null || aggregate.mapTestId === null) {
       throw new ResultCommandError('Result not found', 404)
     }
-    if (aggregate.mapProjectId !== aggregate.runProjectId) {
+    if (
+      aggregate.mapProjectId !== aggregate.runProjectId ||
+      aggregate.mapProjectId !== aggregate.testProjectId
+    ) {
       throw new ResultCommandError('Result scope is inconsistent', 409)
     }
     if (!aggregate.isIncluded) {
@@ -182,6 +248,24 @@ export const saveHumanResult = async (
     const effectiveComment =
       command.comment === undefined ? aggregate.currentComment : command.comment
     const attachmentKeys = [...new Set(command.attachmentKeys ?? [])].sort()
+    const createPlaneDefect = command.createPlaneDefect === true
+
+    if (createPlaneDefect && !isPlaneDefectEligibleStatus(command.status)) {
+      throw new ResultCommandError(
+        'Plane defects can be created only for Failed or Retest results',
+        400,
+      )
+    }
+    if (
+      createPlaneDefect &&
+      !effectiveComment?.trim() &&
+      attachmentKeys.length === 0
+    ) {
+      throw new ResultCommandError(
+        'Add a result note or screenshot before creating a Plane defect',
+        400,
+      )
+    }
 
     const attachmentObjects =
       attachmentKeys.length === 0
@@ -279,6 +363,109 @@ export const saveHumanResult = async (
       throw new Error('Result projection update did not affect exactly one row')
     }
 
+    await trx.insert(testRunsStatusHistory).values({
+      status: command.status,
+      runId: aggregate.mapRunId,
+      testId: aggregate.mapTestId,
+      updatedBy: actor.userId,
+      updatedOn: new Date(),
+      comment: effectiveComment,
+      attachments: attachmentKeys,
+    })
+
+    let defectCycleId: number | null = null
+    let planeDefectIntent: ResultRevisionCommittedPayload['planeDefectIntent']
+
+    if (createPlaneDefect) {
+      const [activeCycle] = await trx
+        .select({
+          defectCycleId: defectCycles.defectCycleId,
+          provider: defectCycles.provider,
+          providerWorkspaceId: defectCycles.providerWorkspaceId,
+          providerProjectId: defectCycles.providerProjectId,
+        })
+        .from(defectCycles)
+        .where(
+          and(
+            eq(defectCycles.testRunMapId, aggregate.testRunMapId),
+            eq(defectCycles.activeMarker, 1),
+          ),
+        )
+        .limit(1)
+        .for('update')
+
+      if (activeCycle) {
+        if (
+          activeCycle.provider !== PLANE_PROVIDER ||
+          activeCycle.providerWorkspaceId !== PLANE_WORKSPACE_ID ||
+          activeCycle.providerProjectId !== PLANE_PROJECT_ID
+        ) {
+          throw new ResultCommandError(
+            'The active defect cycle targets a different provider destination',
+            409,
+          )
+        }
+        defectCycleId = activeCycle.defectCycleId
+        const cycleUpdate = await trx
+          .update(defectCycles)
+          .set({currentEvidenceRevisionId: resultRevisionId})
+          .where(eq(defectCycles.defectCycleId, defectCycleId))
+        if (cycleUpdate[0].affectedRows !== 1) {
+          throw new Error('Defect cycle update did not affect exactly one row')
+        }
+      } else {
+        const [latestCycle] = await trx
+          .select({cycleNumber: defectCycles.cycleNumber})
+          .from(defectCycles)
+          .where(eq(defectCycles.testRunMapId, aggregate.testRunMapId))
+          .orderBy(desc(defectCycles.cycleNumber))
+          .limit(1)
+
+        const correlationKey = `checkmate:${randomUUID()}`
+        const cycleInsert = await trx.insert(defectCycles).values({
+          testRunMapId: aggregate.testRunMapId,
+          cycleNumber: (latestCycle?.cycleNumber ?? 0) + 1,
+          activeMarker: 1,
+          orgId: aggregate.orgId,
+          projectId: aggregate.mapProjectId,
+          runId: aggregate.mapRunId,
+          testId: aggregate.mapTestId,
+          state: 'intake_pending',
+          openingRevisionId: resultRevisionId,
+          currentEvidenceRevisionId: resultRevisionId,
+          provider: PLANE_PROVIDER,
+          providerWorkspaceId: PLANE_WORKSPACE_ID,
+          providerProjectId: PLANE_PROJECT_ID,
+          createCorrelationKey: correlationKey,
+        })
+        defectCycleId = cycleInsert[0].insertId
+        if (!defectCycleId) {
+          throw new Error('Defect cycle insert did not return an ID')
+        }
+        planeDefectIntent = buildPlaneDefectIntent({
+          defectCycleId,
+          correlationKey,
+          testTitle: aggregate.testTitle,
+          status: command.status,
+          runId: aggregate.mapRunId,
+          testId: aggregate.mapTestId,
+          revisionNumber,
+          comment: effectiveComment,
+          attachmentKeys,
+        })
+      }
+
+      const revisionCycleUpdate = await trx
+        .update(resultRevisions)
+        .set({defectCycleId})
+        .where(eq(resultRevisions.resultRevisionId, resultRevisionId))
+      if (revisionCycleUpdate[0].affectedRows !== 1) {
+        throw new Error(
+          'Result revision cycle link did not affect exactly one row',
+        )
+      }
+    }
+
     const outcome: ResultCommandOutcome = {
       resultCommandId: command.resultCommandId,
       resultRevisionId,
@@ -291,17 +478,8 @@ export const saveHumanResult = async (
       status: command.status,
       comment: effectiveComment,
       attachmentKeys,
+      defectCycleId,
     }
-
-    await trx.insert(testRunsStatusHistory).values({
-      status: command.status,
-      runId: aggregate.mapRunId,
-      testId: aggregate.mapTestId,
-      updatedBy: actor.userId,
-      updatedOn: new Date(),
-      comment: effectiveComment,
-      attachments: attachmentKeys,
-    })
 
     const outboxPayload: ResultRevisionCommittedPayload = {
       resultCommandId: command.resultCommandId,
@@ -316,13 +494,21 @@ export const saveHumanResult = async (
       actorUserId: actor.userId,
       actorType: 'human',
       sourceSystem: 'checkmate',
+      ...(defectCycleId === null ? {} : {defectCycleId}),
+      ...(planeDefectIntent ? {planeDefectIntent} : {}),
     }
 
     await trx.insert(resultOutbox).values({
-      eventKey: `result-revision:${resultRevisionId}:committed`,
-      eventType: 'result_revision_committed',
-      aggregateType: 'test_run_map',
-      aggregateId: aggregate.testRunMapId,
+      eventKey: planeDefectIntent
+        ? `defect-cycle:${defectCycleId}:plane-create`
+        : `result-revision:${resultRevisionId}:committed`,
+      eventType: planeDefectIntent
+        ? 'plane_defect_create_requested'
+        : 'result_revision_committed',
+      aggregateType: planeDefectIntent ? 'defect_cycle' : 'test_run_map',
+      aggregateId: planeDefectIntent
+        ? (defectCycleId as number)
+        : aggregate.testRunMapId,
       resultRevisionId,
       payload: outboxPayload,
     })

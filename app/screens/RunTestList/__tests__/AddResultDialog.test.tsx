@@ -418,6 +418,7 @@ describe('AddResultDialog', () => {
         attachmentKeys: [
           'test-run-attachments/8b1e6f2a-1c2d-4e3f-9a0b-123456789abc-result.png',
         ],
+        createPlaneDefect: false,
       },
       {
         method: 'PUT',
@@ -425,6 +426,71 @@ describe('AddResultDialog', () => {
         encType: 'application/json',
       },
     )
+  })
+
+  it('defaults explicit Plane creation on for an eligible single result', () => {
+    ;(cryptoGlobal.randomUUID as jest.Mock).mockReturnValue(
+      '2fc3cc24-4149-45c4-a8e8-5d9c62c71c36',
+    )
+
+    render(
+      <AddResultDialog
+        getSelectedRows={() => [
+          {testId: 42, testRunMapId: 17, resultMapCount: 1},
+        ]}
+        runId={7}
+        variant="runRowUpdate"
+        currStatus={TestStatusType.Failed}
+        currComment="Checkout fails"
+        currAttachments={[]}
+        resultRevisionCommandsEnabled
+        planeDefectCreationEnabled
+      />,
+    )
+
+    fireEvent.click(
+      screen.getByRole('button', {name: 'Edit result, current status Failed'}),
+    )
+
+    expect(
+      screen.getByRole('checkbox', {name: 'Create Plane defect'}),
+    ).toBeChecked()
+    expect(screen.getByText(/BIZ Development intake/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', {name: 'Save result'}))
+
+    expect(submit).toHaveBeenCalledWith(
+      expect.objectContaining({createPlaneDefect: true}),
+      expect.objectContaining({action: '/api/v1/run/save-test-result'}),
+    )
+  })
+
+  it('requires evidence when the eligible Plane option remains selected', () => {
+    render(
+      <AddResultDialog
+        getSelectedRows={() => [
+          {testId: 42, testRunMapId: 17, resultMapCount: 1},
+        ]}
+        runId={7}
+        variant="runRowUpdate"
+        currStatus={TestStatusType.Failed}
+        currAttachments={[]}
+        resultRevisionCommandsEnabled
+        planeDefectCreationEnabled
+      />,
+    )
+
+    fireEvent.click(
+      screen.getByRole('button', {name: 'Edit result, current status Failed'}),
+    )
+    fireEvent.click(screen.getByRole('button', {name: 'Save result'}))
+
+    expect(
+      screen.getByText(
+        'Add a result note or screenshot before creating a Plane defect.',
+      ),
+    ).toBeInTheDocument()
+    expect(submit).not.toHaveBeenCalled()
   })
 
   it('reuses the command ID when an identical save is retried', async () => {

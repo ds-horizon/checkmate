@@ -6,6 +6,7 @@ import {API} from '~/routes/utilities/api'
 import {ComboboxDemo} from '~/components/ComboBox/ComboBox'
 import {CustomDialog} from '~/components/Dialog/Dialog'
 import {Button} from '~/ui/button'
+import {Checkbox} from '~/ui/checkbox'
 import {DialogClose, DialogDescription, DialogTitle} from '~/ui/dialog'
 import {Textarea} from '~/ui/textarea'
 import {useToast} from '~/ui/use-toast'
@@ -44,6 +45,7 @@ interface AddResultsDialogProps {
   isAddResultEnabled?: boolean
   containerClassName?: string
   resultRevisionCommandsEnabled?: boolean
+  planeDefectCreationEnabled?: boolean
 }
 
 interface HistoryResponse {
@@ -74,6 +76,7 @@ export const AddResultDialog = ({
   isAddResultEnabled = true,
   containerClassName,
   resultRevisionCommandsEnabled = false,
+  planeDefectCreationEnabled = false,
 }: AddResultsDialogProps) => {
   const updateStatusFetcher = useFetcher<any>()
   const [status, setStatus] = useState(currStatus ?? '')
@@ -91,6 +94,7 @@ export const AddResultDialog = ({
   const [saveError, setSaveError] = useState<string | null>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [createPlaneDefect, setCreatePlaneDefect] = useState(false)
   const [removedExistingKeys, setRemovedExistingKeys] = useState<string[]>([])
   const {toast} = useToast()
   const sessionIdRef = useRef(0)
@@ -108,6 +112,11 @@ export const AddResultDialog = ({
   const isEditing = variant === 'detailPageUpdate' || variant === 'runRowUpdate'
   const isCommentRemovalBlocked =
     isEditing && Boolean(currComment?.trim()) && comment.trim() === ''
+  const isPlaneDefectEligible =
+    resultRevisionCommandsEnabled &&
+    planeDefectCreationEnabled &&
+    variant !== 'bulkUpdate' &&
+    (status === TestStatusType.Failed || status === TestStatusType.Retest)
 
   const revokeDraftPreviewUrls = (draftAttachments: ResultAttachment[]) => {
     draftAttachments.forEach((attachment) => {
@@ -187,6 +196,13 @@ export const AddResultDialog = ({
       setAttachmentLoadError(null)
       setRemovedExistingKeys([])
       setStatus(currStatus ?? '')
+      setCreatePlaneDefect(
+        resultRevisionCommandsEnabled &&
+          planeDefectCreationEnabled &&
+          variant !== 'bulkUpdate' &&
+          (currStatus === TestStatusType.Failed ||
+            currStatus === TestStatusType.Retest),
+      )
       setComment(currComment ?? '')
       setInitialAttachments(currAttachments ?? [])
       if (shouldLoadExistingAttachments) void loadExistingAttachments()
@@ -204,6 +220,7 @@ export const AddResultDialog = ({
     setIsUploadingAttachment(false)
     if (!committedRef.current) cleanupDraftAttachments(attachments)
     setAttachments([])
+    setCreatePlaneDefect(false)
     resultCommandIdRef.current = null
     resultCommandPayloadRef.current = null
   }
@@ -446,6 +463,16 @@ export const AddResultDialog = ({
     const attachmentKeys = attachments
       .map((attachment) => attachment.key)
       .filter((key): key is string => Boolean(key))
+    if (
+      createPlaneDefect &&
+      comment.trim() === '' &&
+      attachmentKeys.length === 0
+    ) {
+      setSaveError(
+        'Add a result note or screenshot before creating a Plane defect.',
+      )
+      return
+    }
     const updatedSelectedRows = selectedRows.map((row) => ({
       testId: Number(row.testId),
       status,
@@ -474,6 +501,7 @@ export const AddResultDialog = ({
         status,
         comment,
         attachmentKeys: [...attachmentKeys].sort(),
+        createPlaneDefect,
       })
       if (
         resultCommandIdRef.current === null ||
@@ -493,6 +521,7 @@ export const AddResultDialog = ({
           status,
           comment,
           attachmentKeys,
+          createPlaneDefect,
         },
         {
           method: 'PUT',
@@ -616,7 +645,16 @@ export const AddResultDialog = ({
               id={`${fieldId}-status`}
               aria-labelledby={`${fieldId}-status-label`}
               value={status}
-              onChange={(value) => setStatus(value)}
+              onChange={(value) => {
+                setStatus(value)
+                setCreatePlaneDefect(
+                  resultRevisionCommandsEnabled &&
+                    planeDefectCreationEnabled &&
+                    variant !== 'bulkUpdate' &&
+                    (value === TestStatusType.Failed ||
+                      value === TestStatusType.Retest),
+                )
+              }}
               options={TEST_STATUS_OPTIONS}
             />
             {status === '' && (
@@ -738,6 +776,34 @@ export const AddResultDialog = ({
                 : 'Select one or more images, or paste an image with Cmd/Ctrl+V. Remove files before saving.'}
             </p>
           </div>
+
+          {isPlaneDefectEligible && (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
+              <div className="flex min-h-12 items-start gap-3">
+                <Checkbox
+                  id={`${fieldId}-create-plane-defect`}
+                  checked={createPlaneDefect}
+                  onCheckedChange={(checked) =>
+                    setCreatePlaneDefect(checked === true)
+                  }
+                  className="mt-0.5"
+                />
+                <div className="space-y-1">
+                  <label
+                    htmlFor={`${fieldId}-create-plane-defect`}
+                    className="cursor-pointer text-sm font-semibold text-slate-800"
+                  >
+                    Create Plane defect
+                  </label>
+                  <p className="text-xs leading-relaxed text-slate-500">
+                    Queues this result note and screenshot references for
+                    delivery to the BIZ Development intake after the result is
+                    saved.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {saveError && (
             <p

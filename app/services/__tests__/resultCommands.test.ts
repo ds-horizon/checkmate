@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto'
 import {TestStatusType} from '~/dataController/types'
 
 const transaction = jest.fn()
@@ -47,6 +48,8 @@ const aggregate = {
   runStatus: 'Active',
   orgId: 3,
   projectCreatedBy: 23,
+  testProjectId: 5,
+  testTitle: 'Checkout completes successfully',
 }
 
 const createTransaction = ({
@@ -69,7 +72,16 @@ const createTransaction = ({
       ) {
         throw new Error('outbox unavailable')
       }
-      return insertedValues.length === 1 ? [{insertId: 41}] : [{insertId: 1}]
+      const isDefectCycle =
+        typeof values === 'object' &&
+        values !== null &&
+        'state' in values &&
+        values.state === 'intake_pending'
+      return isDefectCycle
+        ? [{insertId: 73}]
+        : insertedValues.length === 1
+        ? [{insertId: 41}]
+        : [{insertId: 1}]
     }),
   }))
   const updateWhere = jest.fn(async () => [{affectedRows: 1}])
@@ -114,6 +126,31 @@ describe('result commands', () => {
     })
 
     expect(withoutComment).not.toBe(clearedComment)
+  })
+
+  it('includes explicit Plane creation intent in the command fingerprint', () => {
+    expect(
+      fingerprintResultCommand({...command, createPlaneDefect: true}),
+    ).not.toBe(fingerprintResultCommand(command))
+  })
+
+  it('preserves the legacy fingerprint when Plane intent is omitted', () => {
+    const legacyPayload = JSON.stringify({
+      resultCommandId: command.resultCommandId,
+      testRunMapId: command.testRunMapId,
+      status: command.status,
+      actorUserId: command.actorUserId,
+      commentIncluded: true,
+      comment: command.comment,
+      attachmentKeys: [],
+    })
+
+    expect(fingerprintResultCommand(command)).toBe(
+      createHash('sha256').update(legacyPayload, 'utf8').digest('hex'),
+    )
+    expect(
+      fingerprintResultCommand({...command, createPlaneDefect: false}),
+    ).toBe(fingerprintResultCommand(command))
   })
 
   it('writes revision, projection, outbox, and receipt in one transaction', async () => {
@@ -167,6 +204,7 @@ describe('result commands', () => {
         orgId: 3,
         projectId: 5,
         attachmentKeys: [],
+        defectCycleId: null,
         replayed: false,
       }),
     )
@@ -185,6 +223,7 @@ describe('result commands', () => {
       status: TestStatusType.Failed,
       comment: command.comment,
       attachmentKeys: [],
+      defectCycleId: null,
     }
     const fake = createTransaction({
       selectResults: [
@@ -201,6 +240,42 @@ describe('result commands', () => {
 
     await expect(saveHumanResult(command)).resolves.toEqual({
       ...outcome,
+      replayed: true,
+    })
+    expect(fake.insert).not.toHaveBeenCalled()
+    expect(fake.update).not.toHaveBeenCalled()
+  })
+
+  it('normalizes receipts written before defect cycle tracking', async () => {
+    const legacyOutcome = {
+      resultCommandId: command.resultCommandId,
+      resultRevisionId: 41,
+      revisionNumber: 1,
+      testRunMapId: 17,
+      orgId: 3,
+      projectId: 5,
+      runId: 7,
+      testId: 11,
+      status: TestStatusType.Failed,
+      comment: command.comment,
+      attachmentKeys: [],
+    }
+    const fake = createTransaction({
+      selectResults: [
+        [{...aggregate, runStatus: 'Locked'}],
+        [
+          {
+            requestFingerprint: fingerprintResultCommand(command),
+            outcome: legacyOutcome,
+          },
+        ],
+      ],
+    })
+    transaction.mockImplementation(async (callback) => callback(fake.trx))
+
+    await expect(saveHumanResult(command)).resolves.toEqual({
+      ...legacyOutcome,
+      defectCycleId: null,
       replayed: true,
     })
     expect(fake.insert).not.toHaveBeenCalled()
@@ -309,6 +384,124 @@ describe('result commands', () => {
     await expect(
       saveHumanResult({...command, actorUserId: 99}),
     ).resolves.toEqual(expect.objectContaining({replayed: false}))
+  })
+
+  it('rejects Plane creation without eligible status and evidence', async () => {
+    const fake = createTransaction({
+      selectResults: [
+        [aggregate],
+        [],
+        [{testRunMapId: 17}],
+        [{userId: 23, role: 'user'}],
+        [],
+      ],
+    })
+    transaction.mockImplementation(async (callback) => callback(fake.trx))
+
+    await expect(
+      saveHumanResult({
+        ...command,
+        status: TestStatusType.Passed,
+        comment: '',
+        createPlaneDefect: true,
+      }),
+    ).rejects.toEqual(expect.objectContaining({status: 400}))
+    expect(fake.insert).not.toHaveBeenCalled()
+  })
+
+  it('reserves one active cycle and enqueues a correlated Plane create', async () => {
+    const fake = createTransaction({
+      selectResults: [
+        [aggregate],
+        [],
+        [{testRunMapId: 17}],
+        [{userId: 23, role: 'user'}],
+        [],
+        [],
+        [],
+      ],
+    })
+    transaction.mockImplementation(async (callback) => callback(fake.trx))
+
+    const result = await saveHumanResult({...command, createPlaneDefect: true})
+
+    expect(result.defectCycleId).toBe(73)
+    expect(fake.insert).toHaveBeenCalledTimes(5)
+    const cycle = fake.insertedValues[2] as Record<string, unknown>
+    expect(cycle).toEqual(
+      expect.objectContaining({
+        testRunMapId: 17,
+        cycleNumber: 1,
+        activeMarker: 1,
+        state: 'intake_pending',
+        openingRevisionId: 41,
+        currentEvidenceRevisionId: 41,
+        provider: 'plane',
+        providerWorkspaceId: 'e36dfd86-953a-4e33-a410-856208893bb9',
+        providerProjectId: '67726ee5-7d0c-4656-8bc8-b2f8a959d5da',
+        createCorrelationKey: expect.stringMatching(
+          /^checkmate:[0-9a-f-]{36}$/,
+        ),
+      }),
+    )
+    expect(fake.insertedValues[3]).toEqual(
+      expect.objectContaining({
+        eventKey: 'defect-cycle:73:plane-create',
+        eventType: 'plane_defect_create_requested',
+        aggregateType: 'defect_cycle',
+        aggregateId: 73,
+        payload: expect.objectContaining({
+          defectCycleId: 73,
+          planeDefectIntent: expect.objectContaining({
+            create: true,
+            defectCycleId: 73,
+            correlationKey: cycle.createCorrelationKey,
+            priority: 'none',
+          }),
+        }),
+      }),
+    )
+    expect(fake.update).toHaveBeenCalledTimes(2)
+  })
+
+  it('reuses an active cycle without enqueuing a second create', async () => {
+    const fake = createTransaction({
+      selectResults: [
+        [aggregate],
+        [],
+        [{testRunMapId: 17}],
+        [{userId: 23, role: 'user'}],
+        [],
+        [
+          {
+            defectCycleId: 73,
+            provider: 'plane',
+            providerWorkspaceId: 'e36dfd86-953a-4e33-a410-856208893bb9',
+            providerProjectId: '67726ee5-7d0c-4656-8bc8-b2f8a959d5da',
+          },
+        ],
+      ],
+    })
+    transaction.mockImplementation(async (callback) => callback(fake.trx))
+
+    const result = await saveHumanResult({...command, createPlaneDefect: true})
+
+    expect(result.defectCycleId).toBe(73)
+    expect(fake.insert).toHaveBeenCalledTimes(4)
+    expect(fake.insertedValues[2]).toEqual(
+      expect.objectContaining({
+        eventType: 'result_revision_committed',
+        payload: expect.objectContaining({defectCycleId: 73}),
+      }),
+    )
+    expect(fake.insertedValues[2]).toEqual(
+      expect.objectContaining({
+        payload: expect.not.objectContaining({
+          planeDefectIntent: expect.anything(),
+        }),
+      }),
+    )
+    expect(fake.update).toHaveBeenCalledTimes(3)
   })
 
   it('stores normalized revision attachment ownership and compatibility history', async () => {

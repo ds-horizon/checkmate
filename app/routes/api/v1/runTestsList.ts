@@ -7,7 +7,10 @@ import {
   responseHandler,
 } from '~/routes/utilities/responseHandler'
 import {API} from '../../utilities/api'
-import {areResultRevisionCommandsEnabled} from '~/services/resultRevisionFlags'
+import {
+  areResultRevisionCommandsEnabled,
+  isPlaneDefectCreationEnabled,
+} from '~/services/resultRevisionFlags'
 
 export interface Tests {
   testRunMapId: number
@@ -36,6 +39,7 @@ export interface RunTestListResponseType {
     testsList: Tests[]
     totalCount: number
     resultRevisionCommandsEnabled: boolean
+    planeDefectCreationEnabled: boolean
     error: any
   }
   status: number
@@ -56,6 +60,7 @@ export async function loader({params, request}: LoaderFunctionArgs) {
       data: {
         ...testRunsData,
         resultRevisionCommandsEnabled: areResultRevisionCommandsEnabled(),
+        planeDefectCreationEnabled: isPlaneDefectCreationEnabled(),
       },
       status: 200,
     })

@@ -158,6 +158,13 @@ export const RunTestListColumnConfig: ColumnDef<Tests>[] = [
                     | undefined
                 )?.resultRevisionCommandsEnabled,
               )}
+              planeDefectCreationEnabled={Boolean(
+                (
+                  table.options.meta as
+                    | {planeDefectCreationEnabled?: boolean}
+                    | undefined
+                )?.planeDefectCreationEnabled,
+              )}
             />
           ) : (
             <span className="text-sm text-slate-700">

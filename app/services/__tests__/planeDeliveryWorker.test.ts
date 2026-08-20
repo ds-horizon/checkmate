@@ -46,9 +46,12 @@ const withIntent = {
     ...baseEvent.payload,
     planeDefectIntent: {
       create: true as const,
+      defectCycleId: 73,
+      correlationKey: 'checkmate:9c3dcc99-60b3-4cbd-b9f6-40f87b538328',
       title: 'Failed Checkmate step',
       description: 'Evidence',
       priority: 'high' as const,
+      attachmentKeys: [],
     },
   },
 }
@@ -65,17 +68,13 @@ describe('Plane delivery worker', () => {
 
     await expect(
       runPlaneDeliveryBatch({adapter, environment: {}}),
-    ).resolves.toEqual(
-      expect.objectContaining({enabled: false, claimed: 0}),
-    )
+    ).resolves.toEqual(expect.objectContaining({enabled: false, claimed: 0}))
     await expect(
       runPlaneDeliveryBatch({
         adapter,
         environment: {PLANE_DELIVERY_WORKER_ENABLED: 'true'},
       }),
-    ).resolves.toEqual(
-      expect.objectContaining({enabled: false, claimed: 0}),
-    )
+    ).resolves.toEqual(expect.objectContaining({enabled: false, claimed: 0}))
     expect(claimResultOutboxEvents).not.toHaveBeenCalled()
   })
 
@@ -107,7 +106,9 @@ describe('Plane delivery worker', () => {
     claimResultOutboxEvents.mockResolvedValue([withIntent])
     const adapter = {
       maxDeliveryMs: 10_000,
-      deliverResultRevision: jest.fn(async () => ({outcome: 'delivered' as const})),
+      deliverResultRevision: jest.fn(async () => ({
+        outcome: 'delivered' as const,
+      })),
     }
 
     await expect(
@@ -134,7 +135,9 @@ describe('Plane delivery worker', () => {
       .mockResolvedValueOnce([secondEvent])
     const adapter = {
       maxDeliveryMs: 10_000,
-      deliverResultRevision: jest.fn(async () => ({outcome: 'delivered' as const})),
+      deliverResultRevision: jest.fn(async () => ({
+        outcome: 'delivered' as const,
+      })),
     }
 
     await runPlaneDeliveryBatch({adapter, environment, limit: 2})
@@ -148,7 +151,9 @@ describe('Plane delivery worker', () => {
       2,
       expect.objectContaining({limit: 1}),
     )
-    expect(adapter.deliverResultRevision.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(
+      adapter.deliverResultRevision.mock.invocationCallOrder[0],
+    ).toBeLessThan(
       (claimResultOutboxEvents as jest.Mock).mock.invocationCallOrder[1],
     )
   })
@@ -236,13 +241,13 @@ describe('Plane delivery worker', () => {
     finalizeResultOutboxEvent.mockResolvedValue(false)
     const adapter = {
       maxDeliveryMs: 10_000,
-      deliverResultRevision: jest.fn(async () => ({outcome: 'delivered' as const})),
+      deliverResultRevision: jest.fn(async () => ({
+        outcome: 'delivered' as const,
+      })),
     }
 
     await expect(
       runPlaneDeliveryBatch({adapter, environment, limit: 1}),
-    ).resolves.toEqual(
-      expect.objectContaining({delivered: 0, staleLeases: 1}),
-    )
+    ).resolves.toEqual(expect.objectContaining({delivered: 0, staleLeases: 1}))
   })
 })

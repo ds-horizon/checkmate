@@ -29,6 +29,17 @@ export type ResultCommandOutcome = {
   status: string
   comment: string | null
   attachmentKeys: string[]
+  defectCycleId: number | null
+}
+
+export type PlaneDefectIntent = {
+  create: true
+  defectCycleId: number
+  correlationKey: string
+  title: string
+  description: string
+  priority: 'urgent' | 'high' | 'medium' | 'low' | 'none'
+  attachmentKeys: string[]
 }
 
 export type ResultRevisionCommittedPayload = {
@@ -44,6 +55,8 @@ export type ResultRevisionCommittedPayload = {
   actorUserId: number
   actorType: 'human'
   sourceSystem: 'checkmate'
+  defectCycleId?: number
+  planeDefectIntent?: PlaneDefectIntent
 }
 
 export type IntegrationEventPayload = Record<string, unknown>
@@ -406,6 +419,8 @@ export const defectCycles = mysqlTable(
     providerSequenceId: int('providerSequenceId'),
     providerUrl: varchar('providerUrl', {length: 500}),
     providerStateId: varchar('providerStateId', {length: 64}),
+    providerIntakeId: varchar('providerIntakeId', {length: 64}),
+    createCorrelationKey: varchar('createCorrelationKey', {length: 64}),
     lastProviderObservedOn: timestamp('lastProviderObservedOn'),
     createdOn: timestamp('createdOn')
       .default(sql`CURRENT_TIMESTAMP`)
@@ -465,6 +480,15 @@ export const defectCycles = mysqlTable(
       cycle.providerWorkspaceId,
       cycle.providerProjectId,
       cycle.providerWorkItemId,
+    ),
+    defectCycleIntakeUnique: unique('defectCycleIntakeUnique').on(
+      cycle.provider,
+      cycle.providerWorkspaceId,
+      cycle.providerProjectId,
+      cycle.providerIntakeId,
+    ),
+    defectCycleCorrelationUnique: unique('defectCycleCorrelationUnique').on(
+      cycle.createCorrelationKey,
     ),
     defectCycleStateIndex: index('defectCycleStateIndex').on(
       cycle.state,

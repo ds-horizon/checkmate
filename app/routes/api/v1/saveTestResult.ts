@@ -2,7 +2,10 @@ import {ActionFunctionArgs} from '@remix-run/node'
 import {z} from 'zod'
 import {TestStatusType} from '~/dataController/types'
 import {ResultCommandError, saveHumanResult} from '~/services/resultCommands'
-import {areResultRevisionCommandsEnabled} from '~/services/resultRevisionFlags'
+import {
+  areResultRevisionCommandsEnabled,
+  isPlaneDefectCreationEnabled,
+} from '~/services/resultRevisionFlags'
 import {isValidAttachmentKey} from '~/services/s3'
 import {API} from '~/routes/utilities/api'
 import {getUserAndCheckAccess} from '~/routes/utilities/checkForUserAndAccess'
@@ -21,6 +24,7 @@ const SaveTestResultRequestSchema = z.object({
     .array(z.string().refine(isValidAttachmentKey, 'Invalid attachment key'))
     .max(20)
     .optional(),
+  createPlaneDefect: z.boolean().optional(),
 })
 
 export type SaveTestResultRequest = z.infer<typeof SaveTestResultRequestSchema>
@@ -46,6 +50,9 @@ export const action = async ({request}: ActionFunctionArgs) => {
     }
 
     const data = await getRequestParams(request, SaveTestResultRequestSchema)
+    if (data.createPlaneDefect && !isPlaneDefectCreationEnabled()) {
+      return responseHandler({error: 'Not found', status: 404})
+    }
     const result = await saveHumanResult({...data, actorUserId: user.userId})
 
     return responseHandler({data: result, status: 200})

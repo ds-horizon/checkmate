@@ -31,8 +31,10 @@ describe('Plane adapter configuration', () => {
     ).toEqual({
       baseUrl: 'https://plane-dev.geep-fence.ts.net',
       apiKey: 'key',
+      workspaceId: 'e36dfd86-953a-4e33-a410-856208893bb9',
       workspaceSlug: 'infinimind',
       projectId: '67726ee5-7d0c-4656-8bc8-b2f8a959d5da',
+      projectIdentifier: 'BIZ',
       timeoutMs: 2500,
     })
   })
@@ -40,18 +42,19 @@ describe('Plane adapter configuration', () => {
 
 describe('Plane intake adapter', () => {
   it('creates Intake through the scoped API and returns durable identity', async () => {
-    const fetchImplementation = jest.fn(async () =>
-      new Response(
-        JSON.stringify({
-          id: 'intake-id',
-          issue: {
-            id: 'work-item-id',
-            sequence_id: 38,
-            project_identifier: 'BIZ',
-          },
-        }),
-        {status: 201, headers: {'content-type': 'application/json'}},
-      ),
+    const fetchImplementation = jest.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            id: 'intake-id',
+            issue: {
+              id: 'work-item-id',
+              sequence_id: 38,
+              project_identifier: 'BIZ',
+            },
+          }),
+          {status: 201, headers: {'content-type': 'application/json'}},
+        ),
     )
     const adapter = createPlaneAdapter(environment, fetchImplementation)
 
@@ -89,11 +92,12 @@ describe('Plane intake adapter', () => {
   it('classifies rate limits as retryable and respects Retry-After', async () => {
     const adapter = createPlaneAdapter(
       environment,
-      jest.fn(async () =>
-        new Response(JSON.stringify({detail: 'Slow down'}), {
-          status: 429,
-          headers: {'retry-after': '3'},
-        }),
+      jest.fn(
+        async () =>
+          new Response(JSON.stringify({detail: 'Slow down'}), {
+            status: 429,
+            headers: {'retry-after': '3'},
+          }),
       ),
     )
 
@@ -112,8 +116,11 @@ describe('Plane intake adapter', () => {
   it('treats a server error after create as ambiguous', async () => {
     const adapter = createPlaneAdapter(
       environment,
-      jest.fn(async () =>
-        new Response(JSON.stringify({detail: 'Internal error'}), {status: 503}),
+      jest.fn(
+        async () =>
+          new Response(JSON.stringify({detail: 'Internal error'}), {
+            status: 503,
+          }),
       ),
     )
 
@@ -132,9 +139,7 @@ describe('Plane intake adapter', () => {
     const adapter = createPlaneAdapter(
       environment,
       jest.fn(async () => {
-        throw new Error(
-          `request failed with X-API-Key ${'a'.repeat(48)}`,
-        )
+        throw new Error(`request failed with X-API-Key ${'a'.repeat(48)}`)
       }),
     )
 

@@ -4,18 +4,22 @@ const MAX_ERROR_LENGTH = 500
 const PLANE_DESTINATIONS = {
   'biz-development': {
     baseUrl: 'https://plane-dev.geep-fence.ts.net',
+    workspaceId: 'e36dfd86-953a-4e33-a410-856208893bb9',
     workspaceSlug: 'infinimind',
     projectId: '67726ee5-7d0c-4656-8bc8-b2f8a959d5da',
+    projectIdentifier: 'BIZ',
   },
 } as const
 
 export type PlanePriority = 'urgent' | 'high' | 'medium' | 'low' | 'none'
 
-type PlaneAdapterConfig = {
+export type PlaneAdapterConfig = {
   baseUrl: string
   apiKey: string
+  workspaceId: string
   workspaceSlug: string
   projectId: string
+  projectIdentifier: string
   timeoutMs: number
 }
 

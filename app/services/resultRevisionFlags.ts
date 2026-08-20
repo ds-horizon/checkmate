@@ -9,3 +9,10 @@ export const isPlaneDeliveryWorkerEnabled = (
 export const arePlaneApiWritesEnabled = (
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ) => environment.PLANE_API_WRITES_ENABLED === 'true'
+
+export const isPlaneDefectCreationEnabled = (
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+) =>
+  environment.PLANE_DEFECT_CREATION_ENABLED === 'true' &&
+  isPlaneDeliveryWorkerEnabled(environment) &&
+  arePlaneApiWritesEnabled(environment)

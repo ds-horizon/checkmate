@@ -60,6 +60,7 @@ const createTransaction = ({
   failOutbox?: boolean
 }) => {
   const insertedValues: unknown[] = []
+  const updatedValues: unknown[] = []
   const select = jest.fn(() => createQuery(selectResults.shift() ?? []))
   const insert = jest.fn(() => ({
     values: jest.fn(async (values: unknown) => {
@@ -85,12 +86,16 @@ const createTransaction = ({
     }),
   }))
   const updateWhere = jest.fn(async () => [{affectedRows: 1}])
-  const updateSet = jest.fn(() => ({where: updateWhere}))
+  const updateSet = jest.fn((values: unknown) => {
+    updatedValues.push(values)
+    return {where: updateWhere}
+  })
   const update = jest.fn(() => ({set: updateSet}))
 
   return {
     trx: {select, insert, update},
     insertedValues,
+    updatedValues,
     insert,
     update,
   }
@@ -407,6 +412,49 @@ describe('result commands', () => {
       }),
     ).rejects.toEqual(expect.objectContaining({status: 400}))
     expect(fake.insert).not.toHaveBeenCalled()
+  })
+
+  it('validates a correlated active cycle when a human passes the result', async () => {
+    const fake = createTransaction({
+      selectResults: [
+        [aggregate],
+        [],
+        [{testRunMapId: 17}],
+        [{userId: 23, role: 'user'}],
+        [],
+        [{defectCycleId: 73}],
+      ],
+    })
+    transaction.mockImplementation(async (callback) => callback(fake.trx))
+
+    await expect(
+      saveHumanResult({...command, status: TestStatusType.Passed}),
+    ).resolves.toEqual(
+      expect.objectContaining({defectCycleId: 73, replayed: false}),
+    )
+
+    expect(fake.update).toHaveBeenCalledTimes(3)
+    expect(fake.updatedValues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          state: 'validated',
+          activeMarker: null,
+          closedOn: expect.any(Date),
+        }),
+        {defectCycleId: 73},
+      ]),
+    )
+    expect(fake.insertedValues[2]).toEqual(
+      expect.objectContaining({
+        payload: expect.objectContaining({defectCycleId: 73}),
+      }),
+    )
+    expect(fake.insertedValues[3]).toEqual(
+      expect.objectContaining({
+        outcome: expect.objectContaining({defectCycleId: 73}),
+      }),
+    )
+    expect(fake.insertedValues).toHaveLength(4)
   })
 
   it('reserves one active cycle and enqueues a correlated Plane create', async () => {

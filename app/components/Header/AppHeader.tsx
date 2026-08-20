@@ -2,10 +2,10 @@ import {User} from '@dao/users.dao'
 import {cn} from '~/ui/utils'
 import {UserComponent} from './UserComponent'
 import {ProjectSwitcher} from './ProjectSwitcher'
-import {FileText, MessageCircle, AlertCircle} from 'lucide-react'
+import {FileText, MessageCircle, AlertCircle, BellRing} from 'lucide-react'
 import {APP_NAME} from '~/constants'
 import {useEffect} from 'react'
-import {useParams} from '@remix-run/react'
+import {Link, useParams} from '@remix-run/react'
 import {useCustomNavigate} from '@hooks/useCustomNavigate'
 import {ORG_ID, SMALL_PAGE_SIZE} from '@route/utils/constants'
 
@@ -62,6 +62,13 @@ export const AppHeader = ({user}: {user: User | undefined}) => {
 
         {/* Right Section */}
         <div className="flex gap-4 items-center">
+          <Link
+            to="/my-retests"
+            className="flex gap-2 items-center px-3 py-2 text-sm rounded-md transition-colors text-slate-300 hover:text-white hover:bg-slate-800">
+            <BellRing className="w-4 h-4" />
+            <span>My Retests</span>
+          </Link>
+
           {/* Documentation */}
           <a
             href="https://checkmate.dreamhorizon.org"

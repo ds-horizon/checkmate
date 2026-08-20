@@ -41,6 +41,40 @@ describe('Plane adapter configuration', () => {
 })
 
 describe('Plane intake adapter', () => {
+  it('fetches and validates the authoritative state for the exact work item', async () => {
+    const fetchImplementation = jest.fn(async () =>
+      Response.json({
+        id: 'work-item-id',
+        state: {id: 'done-state-id'},
+        updated_at: '2026-08-20T00:00:00.000Z',
+      }),
+    )
+    const adapter = createPlaneAdapter(environment, fetchImplementation)
+
+    await expect(adapter.getWorkItem('work-item-id')).resolves.toEqual(
+      expect.objectContaining({
+        workItemId: 'work-item-id',
+        stateId: 'done-state-id',
+        versionMarker: '2026-08-20T00:00:00.000Z',
+      }),
+    )
+    expect(fetchImplementation).toHaveBeenCalledWith(
+      'https://plane-dev.geep-fence.ts.net/api/v1/workspaces/infinimind/projects/67726ee5-7d0c-4656-8bc8-b2f8a959d5da/work-items/work-item-id/',
+      expect.objectContaining({method: 'GET'}),
+    )
+  })
+
+  it('rejects a work item response that does not prove identity and state', async () => {
+    const adapter = createPlaneAdapter(
+      environment,
+      jest.fn(async () => Response.json({id: 'another-work-item'})),
+    )
+
+    await expect(adapter.getWorkItem('work-item-id')).rejects.toMatchObject<
+      Partial<PlaneAdapterError>
+    >({kind: 'manual_attention'})
+  })
+
   it('creates Intake through the scoped API and returns durable identity', async () => {
     const fetchImplementation = jest.fn(
       async () =>

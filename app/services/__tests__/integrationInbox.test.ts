@@ -212,4 +212,37 @@ describe('integration inbox and poll leases', () => {
       }),
     ).resolves.toBe(false)
   })
+
+  it('retries a duplicate cursor bootstrap caused by a concurrent creator', async () => {
+    const insertedValues = jest.fn(async () => [{insertId: 82}])
+    const trx = {
+      select: jest.fn(() => createQuery([])),
+      insert: jest.fn(() => ({values: insertedValues})),
+    }
+    transaction
+      .mockRejectedValueOnce({code: 'ER_DUP_ENTRY', errno: 1062})
+      .mockImplementationOnce(async (callback) => callback(trx))
+    ;(randomUUID as jest.Mock).mockReturnValue('bootstrap-lease')
+
+    await expect(
+      claimIntegrationPollCursor({
+        provider: 'plane',
+        destinationKey: 'plane:workspace:project',
+        now: new Date('2026-08-20T00:00:00.000Z'),
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        integrationPollCursorId: 82,
+        cursorValue: null,
+        leaseToken: 'bootstrap-lease',
+      }),
+    )
+    expect(transaction).toHaveBeenCalledTimes(2)
+    expect(insertedValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'plane',
+        destinationKey: 'plane:workspace:project',
+      }),
+    )
+  })
 })

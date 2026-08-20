@@ -23,3 +23,10 @@ export const isPlaneEvidenceCopyEnabled = (
   environment.PLANE_EVIDENCE_COPY_ENABLED === 'true' &&
   isPlaneDeliveryWorkerEnabled(environment) &&
   arePlaneApiWritesEnabled(environment)
+
+export const isPlaneRetestReadinessEnabled = (
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+) =>
+  environment.PLANE_RETEST_READINESS_ENABLED === 'true' &&
+  environment.PLANE_RETEST_NOTIFICATION_ENABLED === 'true' &&
+  areResultRevisionCommandsEnabled(environment)

@@ -59,6 +59,13 @@ export type PlaneAttachmentDeliveryResponse = {
   attachmentId: string
 }
 
+export type PlaneWorkItem = {
+  workItemId: string
+  stateId: string
+  versionMarker: string | null
+  raw: Record<string, unknown>
+}
+
 export type PlaneErrorKind =
   | 'retryable'
   | 'ambiguous_create'
@@ -193,8 +200,45 @@ const parseIntakeResponse = (value: unknown): PlaneIntakeCreateResponse => {
   }
 }
 
+const parseWorkItem = (
+  requestedWorkItemId: string,
+  value: unknown,
+): PlaneWorkItem => {
+  if (!isRecord(value)) {
+    throw new PlaneAdapterError(
+      'Plane work item response was not an object',
+      'manual_attention',
+    )
+  }
+
+  const workItemId = stringValue(value.id)
+  const state = value.state
+  const stateId =
+    stringValue(state) ?? (isRecord(state) ? stringValue(state.id) : null)
+  const version =
+    stringValue(value.updated_at) ??
+    stringValue(value.updatedAt) ??
+    stringValue(value.updated_on) ??
+    (numberValue(value.version) === null ? null : String(numberValue(value.version)))
+  if (!workItemId || !stateId) {
+    throw new PlaneAdapterError(
+      'Plane work item response did not include an id and state id',
+      'manual_attention',
+    )
+  }
+  if (workItemId !== requestedWorkItemId) {
+    throw new PlaneAdapterError(
+      'Plane work item response did not match the requested id',
+      'manual_attention',
+    )
+  }
+
+  return {workItemId, stateId, versionMarker: version, raw: value}
+}
+
 export type PlaneAdapter = {
   createIntake(request: PlaneIntakeCreateRequest): Promise<PlaneIntakeCreateResponse>
+  getWorkItem(workItemId: string): Promise<PlaneWorkItem>
   ensureComment(
     request: PlaneCommentDeliveryRequest,
   ): Promise<PlaneCommentDeliveryResponse>
@@ -208,7 +252,7 @@ export const createPlaneAdapter = (
   fetchImplementation: Fetch = fetch,
 ): PlaneAdapter => {
   const config = readPlaneAdapterConfig(environment)
-  const workItemPath = (workItemId: string, resource: string) =>
+  const workItemPath = (workItemId: string, resource?: string) =>
     [
       'api',
       'v1',
@@ -218,7 +262,7 @@ export const createPlaneAdapter = (
       encodeURIComponent(config.projectId),
       'work-items',
       encodeURIComponent(workItemId),
-      resource,
+      ...(resource ? [resource] : []),
     ].join('/')
 
   const planeFetch = async (
@@ -558,5 +602,10 @@ export const createPlaneAdapter = (
     }
   }
 
-  return {createIntake, ensureComment, ensureAttachment}
+  const getWorkItem = async (workItemId: string) => {
+    const body = await planeFetch(workItemPath(workItemId), {method: 'GET'}, false)
+    return parseWorkItem(workItemId, body)
+  }
+
+  return {createIntake, getWorkItem, ensureComment, ensureAttachment}
 }

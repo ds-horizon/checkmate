@@ -396,6 +396,47 @@ export const saveHumanResult = async (
     })
 
     let defectCycleId: number | null = null
+
+    if (command.status === TestStatusType.Passed) {
+      const [activeCorrelatedCycle] = await trx
+        .select({defectCycleId: defectCycles.defectCycleId})
+        .from(defectCycles)
+        .where(
+          and(
+            eq(defectCycles.testRunMapId, aggregate.testRunMapId),
+            eq(defectCycles.activeMarker, 1),
+          ),
+        )
+        .limit(1)
+        .for('update')
+
+      if (activeCorrelatedCycle) {
+        defectCycleId = activeCorrelatedCycle.defectCycleId
+        const cycleUpdate = await trx
+          .update(defectCycles)
+          .set({
+            state: 'validated',
+            activeMarker: null,
+            closedOn: new Date(),
+          })
+          .where(
+            eq(defectCycles.defectCycleId, activeCorrelatedCycle.defectCycleId),
+          )
+        if (cycleUpdate[0].affectedRows !== 1) {
+          throw new Error('Defect cycle validation did not affect exactly one row')
+        }
+        const revisionCycleUpdate = await trx
+          .update(resultRevisions)
+          .set({defectCycleId})
+          .where(eq(resultRevisions.resultRevisionId, resultRevisionId))
+        if (revisionCycleUpdate[0].affectedRows !== 1) {
+          throw new Error(
+            'Validated result revision cycle link did not affect exactly one row',
+          )
+        }
+      }
+    }
+
     let planeDefectIntent: ResultRevisionCommittedPayload['planeDefectIntent']
     const planeEvidenceIntents: NonNullable<
       ResultRevisionCommittedPayload['planeEvidenceIntent']

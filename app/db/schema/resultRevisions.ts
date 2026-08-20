@@ -712,6 +712,7 @@ export const resultNotifications = mysqlTable(
     lastError: text('lastError'),
     providerMessageId: varchar('providerMessageId', {length: 255}),
     deliveredOn: timestamp('deliveredOn'),
+    readOn: timestamp('readOn'),
     createdOn: timestamp('createdOn')
       .default(sql`CURRENT_TIMESTAMP`)
       .notNull(),
@@ -737,6 +738,13 @@ export const resultNotifications = mysqlTable(
       notification.deliveryState,
       notification.availableOn,
       notification.leaseExpiresOn,
+    ),
+    resultNotificationRecipientIndex: index(
+      'resultNotificationRecipientIndex',
+    ).on(
+      notification.recipientKey,
+      notification.readOn,
+      notification.createdOn,
     ),
   }),
 )

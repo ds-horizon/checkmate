@@ -24,6 +24,9 @@ const isDuplicateKey = (error: unknown): boolean => {
   return mysqlError.code === 'ER_DUP_ENTRY' || mysqlError.errno === 1062
 }
 
+const isRetryableClaimError = (error: unknown): boolean =>
+  isMySqlDeadlock(error) || isDuplicateKey(error)
+
 const canonicalize = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(canonicalize)
   if (value && typeof value === 'object') {
@@ -122,10 +125,14 @@ export const claimIntegrationInboxEvents = async ({
   limit = DEFAULT_BATCH_SIZE,
   leaseMs = DEFAULT_LEASE_MS,
   now = new Date(),
+  provider,
+  eventType,
 }: {
   limit?: number
   leaseMs?: number
   now?: Date
+  provider?: string
+  eventType?: string
 } = {}): Promise<ClaimedIntegrationInboxEvent[]> => {
   if (!Number.isInteger(limit) || limit < 1 || limit > MAX_BATCH_SIZE) {
     throw new Error(`Inbox claim limit must be between 1 and ${MAX_BATCH_SIZE}`)
@@ -156,6 +163,12 @@ export const claimIntegrationInboxEvents = async ({
                 lte(integrationInbox.leaseExpiresOn, now),
               ),
             ),
+            ...(provider === undefined
+              ? []
+              : [eq(integrationInbox.provider, provider)]),
+            ...(eventType === undefined
+              ? []
+              : [eq(integrationInbox.eventType, eventType)]),
           ),
         )
         .orderBy(
@@ -201,7 +214,7 @@ export const claimIntegrationInboxEvents = async ({
     try {
       return await claimOnce()
     } catch (error) {
-      if (!isMySqlDeadlock(error) || attempt === MAX_DEADLOCK_ATTEMPTS) {
+      if (!isRetryableClaimError(error) || attempt === MAX_DEADLOCK_ATTEMPTS) {
         throw error
       }
     }
@@ -273,44 +286,78 @@ export const claimIntegrationPollCursor = async ({
     throw new Error('Poll lease duration must be a positive integer')
   }
 
-  return dbClient.transaction(async (trx) => {
-    const [cursor] = await trx
-      .select({
-        integrationPollCursorId: integrationPollCursors.integrationPollCursorId,
-        cursorValue: integrationPollCursors.cursorValue,
-        leaseExpiresOn: integrationPollCursors.leaseExpiresOn,
-      })
-      .from(integrationPollCursors)
-      .where(
-        and(
-          eq(integrationPollCursors.provider, provider),
-          eq(integrationPollCursors.destinationKey, destinationKey),
-        ),
-      )
-      .for('update')
+  const claimOnce = () =>
+    dbClient.transaction(async (trx) => {
+      const [cursor] = await trx
+        .select({
+          integrationPollCursorId:
+            integrationPollCursors.integrationPollCursorId,
+          cursorValue: integrationPollCursors.cursorValue,
+          leaseExpiresOn: integrationPollCursors.leaseExpiresOn,
+        })
+        .from(integrationPollCursors)
+        .where(
+          and(
+            eq(integrationPollCursors.provider, provider),
+            eq(integrationPollCursors.destinationKey, destinationKey),
+          ),
+        )
+        .for('update')
 
-    if (!cursor) {
-      throw new IntegrationInboxError('Poll cursor is not configured', 404)
+      if (!cursor) {
+        const leaseToken = randomUUID()
+        const leaseExpiresOn = new Date(now.getTime() + leaseMs)
+        const insertResult = await trx.insert(integrationPollCursors).values({
+          provider,
+          destinationKey,
+          leaseToken,
+          leaseExpiresOn,
+        })
+        const integrationPollCursorId = insertResult[0].insertId
+        if (!integrationPollCursorId) {
+          throw new Error('Poll cursor bootstrap did not return an ID')
+        }
+        return {
+          integrationPollCursorId,
+          cursorValue: null,
+          leaseToken,
+          leaseExpiresOn,
+        }
+      }
+      if (cursor.leaseExpiresOn && cursor.leaseExpiresOn > now) return null
+
+      const leaseToken = randomUUID()
+      const leaseExpiresOn = new Date(now.getTime() + leaseMs)
+      const result = await trx
+        .update(integrationPollCursors)
+        .set({leaseToken, leaseExpiresOn, lastError: null})
+        .where(
+          eq(
+            integrationPollCursors.integrationPollCursorId,
+            cursor.integrationPollCursorId,
+          ),
+        )
+
+      if (result[0].affectedRows !== 1) {
+        throw new Error('Poll cursor claim did not affect exactly one row')
+      }
+      return {...cursor, leaseToken, leaseExpiresOn}
+    })
+
+  for (let attempt = 0; attempt < MAX_DEADLOCK_ATTEMPTS; attempt += 1) {
+    try {
+      return await claimOnce()
+    } catch (error) {
+      if (
+        !isRetryableClaimError(error) ||
+        attempt + 1 === MAX_DEADLOCK_ATTEMPTS
+      ) {
+        throw error
+      }
     }
-    if (cursor.leaseExpiresOn && cursor.leaseExpiresOn > now) return null
+  }
 
-    const leaseToken = randomUUID()
-    const leaseExpiresOn = new Date(now.getTime() + leaseMs)
-    const result = await trx
-      .update(integrationPollCursors)
-      .set({leaseToken, leaseExpiresOn, lastError: null})
-      .where(
-        eq(
-          integrationPollCursors.integrationPollCursorId,
-          cursor.integrationPollCursorId,
-        ),
-      )
-
-    if (result[0].affectedRows !== 1) {
-      throw new Error('Poll cursor claim did not affect exactly one row')
-    }
-    return {...cursor, leaseToken, leaseExpiresOn}
-  })
+  throw new Error('Poll cursor claim retry loop exhausted unexpectedly')
 }
 
 export const finalizeIntegrationPollCursor = async ({

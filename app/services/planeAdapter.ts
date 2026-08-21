@@ -11,7 +11,7 @@ export const MAX_PLANE_API_REQUESTS_PER_DELIVERY = 6
 
 const PLANE_DESTINATIONS = {
   'biz-development': {
-    baseUrl: 'https://plane-dev.geep-fence.ts.net',
+    publicBaseUrl: 'https://plane-dev.geep-fence.ts.net',
     workspaceId: 'e36dfd86-953a-4e33-a410-856208893bb9',
     workspaceSlug: 'infinimind',
     projectId: '67726ee5-7d0c-4656-8bc8-b2f8a959d5da',
@@ -22,7 +22,8 @@ const PLANE_DESTINATIONS = {
 export type PlanePriority = 'urgent' | 'high' | 'medium' | 'low' | 'none'
 
 export type PlaneAdapterConfig = {
-  baseUrl: string
+  apiBaseUrl: string
+  publicBaseUrl: string
   apiKey: string
   workspaceId: string
   workspaceSlug: string
@@ -202,6 +203,21 @@ const readMaxRequestsPerMinute = (value: string | undefined) => {
   return parsed
 }
 
+const readApiBaseUrl = (
+  value: string | undefined,
+  defaultValue: string,
+) => {
+  const apiBaseUrl = value ?? defaultValue
+  const allowed = [
+    'https://plane-dev.geep-fence.ts.net',
+    'http://plane-app-api.plane.svc.cluster.local:8000',
+  ] as const
+  if (!allowed.some((origin) => origin === apiBaseUrl)) {
+    throw new Error('PLANE_API_BASE_URL is not an approved exact origin')
+  }
+  return apiBaseUrl
+}
+
 export const readPlaneAdapterConfig = (
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): PlaneAdapterConfig => {
@@ -217,6 +233,10 @@ export const readPlaneAdapterConfig = (
   )
   return {
     ...destination,
+    apiBaseUrl: readApiBaseUrl(
+      environment.PLANE_API_BASE_URL,
+      destination.publicBaseUrl,
+    ),
     apiKey: required(environment, 'PLANE_API_KEY'),
     timeoutMs: parsePositiveInteger(
       environment.PLANE_API_TIMEOUT_MS,
@@ -395,7 +415,7 @@ export const createPlaneAdapter = (
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), config.timeoutMs)
     try {
-      const response = await fetchImplementation(`${config.baseUrl}/${path}/`, {
+      const response = await fetchImplementation(`${config.apiBaseUrl}/${path}/`, {
         ...init,
         headers: {
           Accept: 'application/json',
@@ -672,7 +692,7 @@ export const createPlaneAdapter = (
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), config.timeoutMs)
     try {
-      const response = await fetchImplementation(`${config.baseUrl}/${path}/`, {
+      const response = await fetchImplementation(`${config.apiBaseUrl}/${path}/`, {
         method: 'POST',
         headers: {
           Accept: 'application/json',

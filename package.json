@@ -21,6 +21,7 @@
     "mcp:start": "cd mcp-server && node build/index.js",
     "plane:deliver": "npx tsx scripts/run-plane-delivery.ts",
     "plane:worker": "npx tsx scripts/run-plane-delivery.ts --watch",
+    "plane:retry-defect-create": "npx tsx scripts/retry-plane-defect-create.ts",
     "plane:retest-readiness": "npx tsx scripts/run-plane-retest-readiness.ts",
     "plane:retest-readiness-worker": "npx tsx scripts/run-plane-retest-readiness.ts --watch",
     "docker:app:setup": "./scripts/docker-start.sh --app-docker true --seed-data true",

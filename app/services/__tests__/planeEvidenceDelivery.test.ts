@@ -9,7 +9,8 @@ import {
 } from '../planeEvidenceDelivery'
 
 const config: PlaneAdapterConfig = {
-  baseUrl: 'https://plane-dev.geep-fence.ts.net',
+  apiBaseUrl: 'https://plane-dev.geep-fence.ts.net',
+  publicBaseUrl: 'https://plane-dev.geep-fence.ts.net',
   apiKey: 'secret-api-key',
   workspaceId: 'e36dfd86-953a-4e33-a410-856208893bb9',
   workspaceSlug: 'infinimind',

@@ -71,7 +71,7 @@ const providerUrl = (
 ) =>
   response.sequenceId === null
     ? null
-    : `${config.baseUrl}/${config.workspaceSlug}/browse/${config.projectIdentifier}-${response.sequenceId}/`
+    : `${config.publicBaseUrl}/${config.workspaceSlug}/browse/${config.projectIdentifier}-${response.sequenceId}/`
 
 export const planeDefectCycleStore: PlaneDefectCycleStore = {
   reserve: (intent, config) =>

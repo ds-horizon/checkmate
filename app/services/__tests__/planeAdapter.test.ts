@@ -30,7 +30,8 @@ describe('Plane adapter configuration', () => {
         PLANE_API_TIMEOUT_MS: '2500',
       }),
     ).toEqual({
-      baseUrl: 'https://plane-dev.geep-fence.ts.net',
+      apiBaseUrl: 'https://plane-dev.geep-fence.ts.net',
+      publicBaseUrl: 'https://plane-dev.geep-fence.ts.net',
       apiKey: 'key',
       workspaceId: 'e36dfd86-953a-4e33-a410-856208893bb9',
       workspaceSlug: 'infinimind',
@@ -40,6 +41,34 @@ describe('Plane adapter configuration', () => {
       maxRequestsPerMinute: 6,
       maxRequestWaitMs: 60000,
     })
+  })
+
+  it('allows only the two exact approved API origins', () => {
+    expect(
+      readPlaneAdapterConfig({
+        PLANE_DESTINATION: 'biz-development',
+        PLANE_API_KEY: 'key',
+        PLANE_API_BASE_URL:
+          'http://plane-app-api.plane.svc.cluster.local:8000',
+      }).apiBaseUrl,
+    ).toBe('http://plane-app-api.plane.svc.cluster.local:8000')
+
+    for (const value of [
+      'https://plane-dev.geep-fence.ts.net/',
+      'https://plane-dev.geep-fence.ts.net.evil.example',
+      'https://user@plane-dev.geep-fence.ts.net',
+      'https://plane-dev.geep-fence.ts.net/api',
+      'https://plane-dev.geep-fence.ts.net?next=evil',
+      'http://plane-app-api.plane.svc.cluster.local:8000#fragment',
+    ]) {
+      expect(() =>
+        readPlaneAdapterConfig({
+          PLANE_DESTINATION: 'biz-development',
+          PLANE_API_KEY: 'key',
+          PLANE_API_BASE_URL: value,
+        }),
+      ).toThrow('PLANE_API_BASE_URL is not an approved exact origin')
+    }
   })
 
   it('rejects a missing, non-positive, or unsafe Plane request bound', () => {
@@ -107,6 +136,27 @@ describe('Plane intake adapter', () => {
     )
     expect(fetchImplementation).toHaveBeenCalledWith(
       'https://plane-dev.geep-fence.ts.net/api/v1/workspaces/infinimind/projects/67726ee5-7d0c-4656-8bc8-b2f8a959d5da/work-items/work-item-id/',
+      expect.objectContaining({method: 'GET'}),
+    )
+  })
+
+  it('sends API fetches to the approved internal origin', async () => {
+    const fetchImplementation = jest.fn(async () =>
+      Response.json({id: 'work-item-id', state: {id: 'done-state-id'}}),
+    )
+    const adapter = createPlaneAdapter(
+      {
+        ...environment,
+        PLANE_API_BASE_URL:
+          'http://plane-app-api.plane.svc.cluster.local:8000',
+      },
+      fetchImplementation,
+    )
+
+    await adapter.getWorkItem('work-item-id')
+
+    expect(fetchImplementation).toHaveBeenCalledWith(
+      'http://plane-app-api.plane.svc.cluster.local:8000/api/v1/workspaces/infinimind/projects/67726ee5-7d0c-4656-8bc8-b2f8a959d5da/work-items/work-item-id/',
       expect.objectContaining({method: 'GET'}),
     )
   })

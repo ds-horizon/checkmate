@@ -30,7 +30,8 @@ import {
 import type {PlaneEvidenceDeliveryStore} from '../planeEvidenceDelivery'
 
 const config: PlaneAdapterConfig = {
-  baseUrl: 'https://plane-dev.geep-fence.ts.net',
+  apiBaseUrl: 'https://plane-dev.geep-fence.ts.net',
+  publicBaseUrl: 'https://plane-dev.geep-fence.ts.net',
   apiKey: 'secret-api-key',
   workspaceId: 'e36dfd86-953a-4e33-a410-856208893bb9',
   workspaceSlug: 'infinimind',
@@ -243,7 +244,10 @@ describe('Plane defect cycle persistence', () => {
     await expect(
       planeDefectCycleStore.complete(
         intent,
-        config,
+        {
+          ...config,
+          apiBaseUrl: 'http://plane-app-api.plane.svc.cluster.local:8000',
+        },
         {
           intakeId: 'intake-id',
           workItemId: 'work-item-id',

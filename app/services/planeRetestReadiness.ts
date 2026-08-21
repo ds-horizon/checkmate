@@ -27,19 +27,41 @@ import {reconcilePlaneRetestReadiness} from './planeReconciliation'
 import {isPlaneRetestReadinessEnabled} from './resultRevisionFlags'
 
 const PLANE_PROVIDER = 'plane'
-const DEFAULT_BATCH_SIZE = 10
-const MAX_BATCH_SIZE = 100
-const DEFAULT_LEASE_MS = 130_000
+const DEFAULT_BATCH_SIZE = 1
+const MAX_BATCH_SIZE = 10
+const DEFAULT_LEASE_MS = 710_000
 const DEFAULT_RETRY_MS = 60_000
+const MAX_RETRY_MS = 60 * 60 * 1000
 const MIN_LEASE_SAFETY_MS = 10_000
 
 type Environment = Readonly<Record<string, string | undefined>>
+
+export const readPlaneRetestReadinessBatchSize = (
+  environment: Environment = process.env,
+) => {
+  const configured = environment.PLANE_RETEST_READINESS_BATCH_SIZE
+  if (configured === undefined) return DEFAULT_BATCH_SIZE
+
+  if (!/^[1-9][0-9]*$/.test(configured)) {
+    throw new Error(
+      `PLANE_RETEST_READINESS_BATCH_SIZE must be an integer between 1 and ${MAX_BATCH_SIZE}`,
+    )
+  }
+  const value = Number(configured)
+  if (!Number.isSafeInteger(value) || value > MAX_BATCH_SIZE) {
+    throw new Error(
+      `PLANE_RETEST_READINESS_BATCH_SIZE must be an integer between 1 and ${MAX_BATCH_SIZE}`,
+    )
+  }
+  return value
+}
 
 export type PlaneRetestReadinessConfig = {
   doneStateId: string
   workspaceId: string
   projectId: string
   apiTimeoutMs: number
+  maxRequestWaitMs: number
   destinationKey: string
 }
 
@@ -89,6 +111,7 @@ export const readPlaneRetestReadinessConfig = (
     workspaceId: plane.workspaceId,
     projectId: plane.projectId,
     apiTimeoutMs: plane.timeoutMs,
+    maxRequestWaitMs: plane.maxRequestWaitMs,
     destinationKey: `${PLANE_PROVIDER}:${plane.workspaceId}:${plane.projectId}`,
   }
 }
@@ -462,13 +485,22 @@ const getEventFields = (payload: Record<string, unknown>) => {
     : null
 }
 
+const boundedRetryDelay = (value: number | undefined) =>
+  value === undefined || !Number.isFinite(value)
+    ? DEFAULT_RETRY_MS
+    : Math.max(1, Math.min(Math.trunc(value), MAX_RETRY_MS))
+
 const retryAt = (now: Date, error: unknown) =>
   new Date(
     now.getTime() +
-      (error instanceof PlaneAdapterError && error.retryAfterMs
-        ? Math.min(error.retryAfterMs, DEFAULT_RETRY_MS)
+      (error instanceof PlaneAdapterError
+        ? boundedRetryDelay(error.retryAfterMs)
         : DEFAULT_RETRY_MS),
   )
+
+export const planeRetestReadinessInboxLeaseMs = (
+  config: PlaneRetestReadinessConfig,
+) => config.maxRequestWaitMs + config.apiTimeoutMs + MIN_LEASE_SAFETY_MS
 
 export const processPlaneRetestReadinessInbox = async ({
   config,
@@ -493,9 +525,14 @@ export const processPlaneRetestReadinessInbox = async ({
     manualAttention: 0,
     staleLeases: 0,
   }
+  // Claim one inbox event at a time. Its lease must cover the adapter's
+  // worst-case rate-limit wait, request timeout, and finalization margin so a
+  // second worker cannot reclaim it while the first one is still processing.
+  const inboxLeaseMs = planeRetestReadinessInboxLeaseMs(config)
   for (let index = 0; index < limit; index += 1) {
     const [event] = await claimIntegrationInboxEvents({
       limit: 1,
+      leaseMs: inboxLeaseMs,
       now: now(),
       provider: PLANE_PROVIDER,
       eventType: 'plane.work_item.authoritative_state',
@@ -567,7 +604,7 @@ export const processPlaneRetestReadinessInbox = async ({
 export const runConfiguredPlaneRetestReadinessBatch = async ({
   environment = process.env,
   adapter,
-  limit = DEFAULT_BATCH_SIZE,
+  limit,
   leaseMs = DEFAULT_LEASE_MS,
   now = () => new Date(),
 }: {
@@ -591,7 +628,12 @@ export const runConfiguredPlaneRetestReadinessBatch = async ({
   }
   if (!isPlaneRetestReadinessEnabled(environment)) return summary
 
-  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_BATCH_SIZE) {
+  const batchSize = limit ?? readPlaneRetestReadinessBatchSize(environment)
+  if (
+    !Number.isInteger(batchSize) ||
+    batchSize < 1 ||
+    batchSize > MAX_BATCH_SIZE
+  ) {
     throw new Error(
       `Plane readiness batch size must be between 1 and ${MAX_BATCH_SIZE}`,
     )
@@ -601,9 +643,11 @@ export const runConfiguredPlaneRetestReadinessBatch = async ({
   }
 
   const config = readPlaneRetestReadinessConfig(environment)
-  if (leaseMs < config.apiTimeoutMs * limit + MIN_LEASE_SAFETY_MS) {
+  const maxPerPollRequestMs =
+    config.apiTimeoutMs + config.maxRequestWaitMs
+  if (leaseMs < maxPerPollRequestMs * batchSize + MIN_LEASE_SAFETY_MS) {
     throw new Error(
-      'Plane readiness lease must exceed serial API timeout plus safety margin',
+      'Plane readiness lease must exceed serial API limiter and timeout budget plus safety margin',
     )
   }
   summary.enabled = true
@@ -623,7 +667,7 @@ export const runConfiguredPlaneRetestReadinessBatch = async ({
     const targets = await listPlaneRetestReadinessPollTargets({
       config,
       cursorValue: cursor.cursorValue,
-      limit,
+      limit: batchSize,
     })
     let lastCycleId: number | null = null
     for (const target of targets) {
@@ -647,7 +691,7 @@ export const runConfiguredPlaneRetestReadinessBatch = async ({
       lastCycleId = target.defectCycleId
     }
     cursorValue =
-      targets.length === limit && lastCycleId !== null
+      targets.length === batchSize && lastCycleId !== null
         ? String(lastCycleId)
         : null
   } catch (error) {
@@ -668,7 +712,7 @@ export const runConfiguredPlaneRetestReadinessBatch = async ({
   const inboxSummary = await processPlaneRetestReadinessInbox({
     config,
     adapter: planeAdapter,
-    limit,
+    limit: batchSize,
     now,
   })
   return {

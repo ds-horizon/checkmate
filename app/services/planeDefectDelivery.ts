@@ -8,6 +8,7 @@ import {
 import {dbClient} from '~/db/client'
 import {
   createPlaneAdapter,
+  MAX_PLANE_API_REQUESTS_PER_DELIVERY,
   PlaneAdapter,
   PlaneAdapterConfig,
   PlaneAdapterError,
@@ -342,7 +343,11 @@ export const createPlaneResultDeliveryAdapter = ({
   reopenStateId?: string
   clock?: () => Date
 }): PlaneResultDeliveryAdapter => ({
-  maxDeliveryMs: config.timeoutMs * 6,
+  // Lease safety covers every documented Plane API request, including its
+  // proactive limiter wait immediately before the request and its timeout.
+  maxDeliveryMs:
+    MAX_PLANE_API_REQUESTS_PER_DELIVERY *
+    (config.timeoutMs + config.maxRequestWaitMs),
   async deliverResultRevision(event) {
     const actionIntent = event.payload.planeCycleActionIntent
     if (actionIntent) {

@@ -16,9 +16,9 @@ import {PlaneAdapterError, sanitizePlaneError} from './planeAdapter'
 
 const DEFAULT_RETRY_DELAY_MS = 60_000
 const MAX_RETRY_DELAY_MS = 60 * 60 * 1000
-const DEFAULT_BATCH_SIZE = 10
-const MAX_BATCH_SIZE = 100
-const DEFAULT_LEASE_MS = 70_000
+const DEFAULT_BATCH_SIZE = 1
+const MAX_BATCH_SIZE = 10
+const DEFAULT_LEASE_MS = 430_000
 const MIN_LEASE_SAFETY_MS = 5_000
 
 export type PlaneDeliveryPayload = ResultRevisionCommittedPayload & {
@@ -59,6 +59,26 @@ const messageFromUnknown = (error: unknown) =>
     ? sanitizePlaneError(error)
     : 'Unexpected Plane delivery error'
 
+export const readPlaneDeliveryBatchSize = (
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+) => {
+  const configured = environment.PLANE_DELIVERY_BATCH_SIZE
+  if (configured === undefined) return DEFAULT_BATCH_SIZE
+
+  if (!/^[1-9][0-9]*$/.test(configured)) {
+    throw new Error(
+      `PLANE_DELIVERY_BATCH_SIZE must be an integer between 1 and ${MAX_BATCH_SIZE}`,
+    )
+  }
+  const value = Number(configured)
+  if (!Number.isSafeInteger(value) || value > MAX_BATCH_SIZE) {
+    throw new Error(
+      `PLANE_DELIVERY_BATCH_SIZE must be an integer between 1 and ${MAX_BATCH_SIZE}`,
+    )
+  }
+  return value
+}
+
 export const runPlaneDeliveryBatch = async ({
   adapter,
   environment = process.env,
@@ -90,7 +110,7 @@ export const runPlaneDeliveryBatch = async ({
   }
   summary.enabled = true
 
-  const batchSize = limit ?? DEFAULT_BATCH_SIZE
+  const batchSize = limit ?? readPlaneDeliveryBatchSize(environment)
   const effectiveLeaseMs = leaseMs ?? DEFAULT_LEASE_MS
   if (
     !Number.isInteger(batchSize) ||

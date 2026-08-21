@@ -16,6 +16,8 @@ const config: PlaneAdapterConfig = {
   projectId: '67726ee5-7d0c-4656-8bc8-b2f8a959d5da',
   projectIdentifier: 'BIZ',
   timeoutMs: 10_000,
+  maxRequestsPerMinute: 12,
+  maxRequestWaitMs: 60_000,
 }
 
 const intent: PlaneEvidenceIntent = {

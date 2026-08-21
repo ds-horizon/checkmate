@@ -72,6 +72,7 @@ describe('Plane integration flags', () => {
     expect(
       isPlaneRetestReadinessEnabled({
         PLANE_RETEST_READINESS_ENABLED: 'true',
+        PLANE_RETEST_READINESS_WORKER_ENABLED: 'true',
         PLANE_RETEST_NOTIFICATION_ENABLED: 'true',
         RESULT_REVISION_COMMANDS_ENABLED: 'true',
       }),

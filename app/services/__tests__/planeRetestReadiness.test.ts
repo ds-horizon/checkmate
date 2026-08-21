@@ -22,7 +22,9 @@ jest.mock('../planeReconciliation', () => ({
 import {
   applyPlaneRetestReadiness,
   planePollDeliveryId,
+  planeRetestReadinessInboxLeaseMs,
   processPlaneRetestReadinessInbox,
+  readPlaneRetestReadinessBatchSize,
   readPlaneRetestReadinessConfig,
   runConfiguredPlaneRetestReadinessBatch,
 } from '../planeRetestReadiness'
@@ -53,6 +55,7 @@ const readinessConfig = {
   workspaceId: 'workspace-id',
   projectId: 'project-id',
   apiTimeoutMs: 100,
+  maxRequestWaitMs: 60_000,
   destinationKey: 'plane:workspace-id:project-id',
 }
 
@@ -102,6 +105,67 @@ describe('Plane retest readiness', () => {
         destinationKey:
           'plane:e36dfd86-953a-4e33-a410-856208893bb9:67726ee5-7d0c-4656-8bc8-b2f8a959d5da',
       }),
+    )
+  })
+
+  it('defaults readiness batches to one item and accepts bounded configuration', () => {
+    expect(readPlaneRetestReadinessBatchSize({})).toBe(1)
+    expect(
+      readPlaneRetestReadinessBatchSize({
+        PLANE_RETEST_READINESS_BATCH_SIZE: '10',
+      }),
+    ).toBe(10)
+  })
+
+  it.each(['0', '11', '1.5', 'invalid', ' 1']) (
+    'fails closed for invalid readiness batch size %s',
+    (configured) => {
+      expect(() =>
+        readPlaneRetestReadinessBatchSize({
+          PLANE_RETEST_READINESS_BATCH_SIZE: configured,
+        }),
+      ).toThrow(
+        'PLANE_RETEST_READINESS_BATCH_SIZE must be an integer between 1 and 10',
+      )
+    },
+  )
+
+  it('uses the one-item canary default for the configured readiness runner', async () => {
+    await expect(
+      runConfiguredPlaneRetestReadinessBatch({
+        environment: {
+          PLANE_RETEST_READINESS_ENABLED: 'true',
+          PLANE_RETEST_READINESS_WORKER_ENABLED: 'true',
+          PLANE_RETEST_NOTIFICATION_ENABLED: 'true',
+          RESULT_REVISION_COMMANDS_ENABLED: 'true',
+          PLANE_RETEST_READINESS_DONE_STATE_ID: 'done-state-id',
+          PLANE_DESTINATION: 'biz-development',
+          PLANE_API_KEY: 'key',
+          PLANE_API_TIMEOUT_MS: '100',
+        },
+        leaseMs: 70_100,
+      }),
+    ).resolves.toEqual(expect.objectContaining({enabled: true, claimedCursor: false}))
+  })
+
+  it('uses the configured readiness batch size when no explicit limit is supplied', async () => {
+    await expect(
+      runConfiguredPlaneRetestReadinessBatch({
+        environment: {
+          PLANE_RETEST_READINESS_ENABLED: 'true',
+          PLANE_RETEST_READINESS_WORKER_ENABLED: 'true',
+          PLANE_RETEST_NOTIFICATION_ENABLED: 'true',
+          RESULT_REVISION_COMMANDS_ENABLED: 'true',
+          PLANE_RETEST_READINESS_DONE_STATE_ID: 'done-state-id',
+          PLANE_DESTINATION: 'biz-development',
+          PLANE_API_KEY: 'key',
+          PLANE_API_TIMEOUT_MS: '100',
+          PLANE_RETEST_READINESS_BATCH_SIZE: '2',
+        },
+        leaseMs: 70_100,
+      }),
+    ).rejects.toThrow(
+      'Plane readiness lease must exceed serial API limiter and timeout budget plus safety margin',
     )
   })
 
@@ -588,6 +652,79 @@ describe('Plane retest readiness', () => {
     )
   })
 
+  it('leases each inbox event through the rate-limit wait and request timeout', async () => {
+    jest.useFakeTimers()
+    try {
+      transaction.mockImplementation(async (callback) =>
+        callback({
+          select: jest.fn(() => createQuery([])),
+          update: jest.fn(),
+          insert: jest.fn(),
+        }),
+      )
+      const startedOn = new Date('2026-08-20T00:00:00.000Z')
+      jest.setSystemTime(startedOn)
+      const leaseMs = planeRetestReadinessInboxLeaseMs(readinessConfig)
+      let leaseExpiresOn: Date | undefined
+      mockClaimIntegrationInboxEvents
+        .mockImplementationOnce(
+          async ({leaseMs: claimedLeaseMs, now: claimedOn}: {
+            leaseMs: number
+            now: Date
+          }) => {
+            expect(claimedLeaseMs).toBe(leaseMs)
+            leaseExpiresOn = new Date(claimedOn.getTime() + claimedLeaseMs)
+            return [
+              {
+                integrationInboxId: 95,
+                provider: 'plane',
+                providerDeliveryId: 'delivery-95',
+                eventType: 'plane.work_item.authoritative_state',
+                payload: {workItemId: 'work-item-id', stateId: 'done-state-id'},
+                attemptCount: 1,
+                leaseToken: 'lease-95',
+                leaseExpiresOn,
+              },
+            ]
+          },
+        )
+        .mockResolvedValueOnce([])
+      mockFinalizeIntegrationInboxEvent.mockResolvedValue(true)
+      const getWorkItem = jest.fn(async () => {
+        await new Promise<void>((resolve) =>
+          setTimeout(
+            resolve,
+            readinessConfig.maxRequestWaitMs + readinessConfig.apiTimeoutMs,
+          ),
+        )
+        return {
+          workItemId: 'work-item-id',
+          stateId: 'not-done-anymore',
+          versionMarker: '2026-08-20T00:00:01.000Z',
+          raw: {},
+        }
+      })
+
+      const processing = processPlaneRetestReadinessInbox({
+        config: readinessConfig,
+        adapter: createAdapter(getWorkItem),
+      })
+      await jest.advanceTimersByTimeAsync(
+        readinessConfig.maxRequestWaitMs + readinessConfig.apiTimeoutMs,
+      )
+      await processing
+
+      expect(getWorkItem).toHaveBeenCalledTimes(1)
+      expect(leaseExpiresOn).toBeDefined()
+      expect(leaseExpiresOn!.getTime() - Date.now()).toBe(10_000)
+      expect(mockFinalizeIntegrationInboxEvent).toHaveBeenCalledWith(
+        expect.objectContaining({integrationInboxId: 95, outcome: 'no_op'}),
+      )
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
   it('routes permanent Plane reads to manual attention', async () => {
     mockClaimIntegrationInboxEvents
       .mockResolvedValueOnce([
@@ -626,6 +763,7 @@ describe('Plane retest readiness', () => {
       runConfiguredPlaneRetestReadinessBatch({
         environment: {
           PLANE_RETEST_READINESS_ENABLED: 'true',
+          PLANE_RETEST_READINESS_WORKER_ENABLED: 'true',
           PLANE_RETEST_NOTIFICATION_ENABLED: 'true',
           RESULT_REVISION_COMMANDS_ENABLED: 'true',
           PLANE_RETEST_READINESS_DONE_STATE_ID: 'done-state-id',
@@ -636,6 +774,6 @@ describe('Plane retest readiness', () => {
         limit: 2,
         leaseMs: 10_000,
       }),
-    ).rejects.toThrow('serial API timeout plus safety margin')
+    ).rejects.toThrow('serial API limiter and timeout budget plus safety margin')
   })
 })

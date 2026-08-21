@@ -1,4 +1,5 @@
 import {
+  createPlaneRequestLimiter,
   createPlaneAdapter,
   PlaneAdapterError,
   readPlaneAdapterConfig,
@@ -36,7 +37,53 @@ describe('Plane adapter configuration', () => {
       projectId: '67726ee5-7d0c-4656-8bc8-b2f8a959d5da',
       projectIdentifier: 'BIZ',
       timeoutMs: 2500,
+      maxRequestsPerMinute: 6,
+      maxRequestWaitMs: 60000,
     })
+  })
+
+  it('rejects a missing, non-positive, or unsafe Plane request bound', () => {
+    expect(() =>
+      readPlaneAdapterConfig({
+        PLANE_DESTINATION: 'biz-development',
+        PLANE_API_KEY: 'key',
+        PLANE_MAX_REQUESTS_PER_MINUTE: '0',
+      }),
+    ).toThrow('PLANE_MAX_REQUESTS_PER_MINUTE must be a positive integer')
+    expect(() =>
+      readPlaneAdapterConfig({
+        PLANE_DESTINATION: 'biz-development',
+        PLANE_API_KEY: 'key',
+        PLANE_MAX_REQUESTS_PER_MINUTE: '61',
+      }),
+    ).toThrow('PLANE_MAX_REQUESTS_PER_MINUTE must be between 1 and 60')
+  })
+
+  it('rate gates Plane API starts before the fetch is invoked', async () => {
+    let now = 1_000
+    const waits: number[] = []
+    const limiter = createPlaneRequestLimiter({
+      requestsPerMinute: 6,
+      now: () => now,
+      sleepFor: async (milliseconds) => {
+        waits.push(milliseconds)
+        now += milliseconds
+      },
+    })
+    const fetchImplementation = jest.fn(async () =>
+      Response.json({
+        id: 'work-item-id',
+        state: {id: 'done-state-id'},
+      }),
+    )
+    const adapter = createPlaneAdapter(environment, fetchImplementation, limiter)
+
+    for (let index = 0; index < 7; index += 1) {
+      await adapter.getWorkItem('work-item-id')
+    }
+
+    expect(waits).toEqual([60_000])
+    expect(fetchImplementation).toHaveBeenCalledTimes(7)
   })
 })
 
@@ -153,6 +200,86 @@ describe('Plane intake adapter', () => {
         }),
       }),
     )
+  })
+
+  it('shares the Plane request budget with other adapter methods before creating Intake', async () => {
+    let now = 1_000
+    const waits: number[] = []
+    const limiter = createPlaneRequestLimiter({
+      requestsPerMinute: 1,
+      now: () => now,
+      sleepFor: async (milliseconds) => {
+        waits.push(milliseconds)
+        now += milliseconds
+      },
+    })
+    const fetchImplementation = jest
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({id: 'work-item-id', state: {id: 'done-state-id'}}),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          id: 'intake-id',
+          issue: {id: 'work-item-id', sequence_id: 38, project_identifier: 'BIZ'},
+        }),
+      )
+    const adapter = createPlaneAdapter(environment, fetchImplementation, limiter)
+
+    await adapter.getWorkItem('work-item-id')
+    await adapter.createIntake({
+      title: 'Checkmate failed step',
+      description: 'Evidence',
+      priority: 'high',
+    })
+
+    expect(waits).toEqual([60_000])
+    expect(fetchImplementation).toHaveBeenCalledTimes(2)
+  })
+
+  it('starts the Intake timeout only after the shared rate-limit wait', async () => {
+    jest.useFakeTimers()
+    try {
+      const limiter = createPlaneRequestLimiter({requestsPerMinute: 12})
+      const signals: AbortSignal[] = []
+      const fetchImplementation: typeof fetch = jest.fn(async (_input, init) => {
+        if (!init?.signal) throw new Error('expected Plane request signal')
+        signals.push(init.signal)
+        if (signals.length <= 12) {
+          return Response.json({id: 'work-item-id', state: {id: 'done-state-id'}})
+        }
+        return Response.json({
+          id: 'intake-id',
+          issue: {id: 'work-item-id', sequence_id: 38, project_identifier: 'BIZ'},
+        })
+      })
+      const adapter = createPlaneAdapter(
+        {...environment, PLANE_API_TIMEOUT_MS: '10'},
+        fetchImplementation,
+        limiter,
+      )
+
+      for (let index = 0; index < 12; index += 1) {
+        await adapter.getWorkItem('work-item-id')
+      }
+      const delivery = adapter.createIntake({
+        title: 'Checkmate failed step',
+        description: 'Evidence',
+        priority: 'high',
+      })
+
+      await jest.advanceTimersByTimeAsync(10)
+      expect(fetchImplementation).toHaveBeenCalledTimes(12)
+
+      await jest.advanceTimersByTimeAsync(59_990)
+      await expect(delivery).resolves.toEqual(
+        expect.objectContaining({intakeId: 'intake-id'}),
+      )
+      expect(signals).toHaveLength(13)
+      expect(signals[12].aborted).toBe(false)
+    } finally {
+      jest.useRealTimers()
+    }
   })
 
   it('classifies rate limits as retryable and respects Retry-After', async () => {

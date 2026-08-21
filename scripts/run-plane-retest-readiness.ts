@@ -3,9 +3,9 @@ import {sanitizePlaneError} from '../app/services/planeAdapter'
 import {runConfiguredPlaneRetestReadinessBatch} from '../app/services/planeRetestReadiness'
 import {waitForWorkerPoll} from '../app/services/workerPoll'
 
-const DEFAULT_POLL_INTERVAL_MS = 5_000
+const DEFAULT_POLL_INTERVAL_MS = 5 * 60_000
 const MAX_POLL_INTERVAL_MS = 5 * 60_000
-const DEFAULT_LEASE_MS = 130_000
+const DEFAULT_LEASE_MS = 710_000
 const watch = process.argv.includes('--watch')
 const shutdownController = new AbortController()
 
@@ -13,9 +13,9 @@ const readPollInterval = () => {
   const configured = process.env.PLANE_RETEST_READINESS_POLL_INTERVAL_MS
   if (!configured) return DEFAULT_POLL_INTERVAL_MS
   const value = Number(configured)
-  if (!Number.isInteger(value) || value < 1 || value > MAX_POLL_INTERVAL_MS) {
+  if (!Number.isInteger(value) || value < 1_000 || value > MAX_POLL_INTERVAL_MS) {
     throw new Error(
-      `PLANE_RETEST_READINESS_POLL_INTERVAL_MS must be between 1 and ${MAX_POLL_INTERVAL_MS}`,
+      `PLANE_RETEST_READINESS_POLL_INTERVAL_MS must be between 1000 and ${MAX_POLL_INTERVAL_MS}`,
     )
   }
   return value

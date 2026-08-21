@@ -3,7 +3,7 @@ import {sanitizePlaneError} from '../app/services/planeAdapter'
 import {client} from '../app/db/client'
 import {waitForWorkerPoll} from '../app/services/workerPoll'
 
-const DEFAULT_POLL_INTERVAL_MS = 5_000
+const DEFAULT_POLL_INTERVAL_MS = 5 * 60_000
 const MAX_POLL_INTERVAL_MS = 5 * 60_000
 const watch = process.argv.includes('--watch')
 const shutdownController = new AbortController()
@@ -13,9 +13,9 @@ const readPollInterval = () => {
   if (!configured) return DEFAULT_POLL_INTERVAL_MS
 
   const value = Number(configured)
-  if (!Number.isInteger(value) || value < 1 || value > MAX_POLL_INTERVAL_MS) {
+  if (!Number.isInteger(value) || value < 1_000 || value > MAX_POLL_INTERVAL_MS) {
     throw new Error(
-      `PLANE_DELIVERY_POLL_INTERVAL_MS must be between 1 and ${MAX_POLL_INTERVAL_MS}`,
+      `PLANE_DELIVERY_POLL_INTERVAL_MS must be between 1000 and ${MAX_POLL_INTERVAL_MS}`,
     )
   }
   return value
@@ -38,9 +38,9 @@ const main = async () => {
       return
     }
 
-    if (summary.claimed === 0) {
-      await waitForWorkerPoll(pollIntervalMs, shutdownController.signal)
-    }
+    // Always yield between batches so a backlog cannot create an unbounded
+    // request burst after a worker starts or a lease is released.
+    await waitForWorkerPoll(pollIntervalMs, shutdownController.signal)
   } while (!shutdownController.signal.aborted)
 }
 

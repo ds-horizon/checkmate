@@ -7,7 +7,10 @@ jest.mock('../resultOutbox', () => ({
 }))
 
 import {PlaneAdapterError} from '../planeAdapter'
-import {runPlaneDeliveryBatch} from '../planeDeliveryWorker'
+import {
+  readPlaneDeliveryBatchSize,
+  runPlaneDeliveryBatch,
+} from '../planeDeliveryWorker'
 
 const environment = {
   PLANE_DELIVERY_WORKER_ENABLED: 'true',
@@ -92,6 +95,34 @@ describe('Plane delivery worker', () => {
       }),
     ).resolves.toEqual(expect.objectContaining({enabled: false, claimed: 0}))
     expect(claimResultOutboxEvents).not.toHaveBeenCalled()
+  })
+
+  it('defaults delivery batches to one item and accepts bounded configuration', () => {
+    expect(readPlaneDeliveryBatchSize({})).toBe(1)
+    expect(
+      readPlaneDeliveryBatchSize({PLANE_DELIVERY_BATCH_SIZE: '10'}),
+    ).toBe(10)
+  })
+
+  it.each(['0', '11', '1.5', 'invalid', ' 1']) (
+    'fails closed for invalid delivery batch size %s',
+    (configured) => {
+      expect(() =>
+        readPlaneDeliveryBatchSize({PLANE_DELIVERY_BATCH_SIZE: configured}),
+      ).toThrow('PLANE_DELIVERY_BATCH_SIZE must be an integer between 1 and 10')
+    },
+  )
+
+  it('uses the configured delivery batch size when no explicit limit is supplied', async () => {
+    claimResultOutboxEvents.mockResolvedValue([baseEvent])
+    const adapter = {maxDeliveryMs: 10_000, deliverResultRevision: jest.fn()}
+
+    await runPlaneDeliveryBatch({
+      adapter,
+      environment: {...environment, PLANE_DELIVERY_BATCH_SIZE: '3'},
+    })
+
+    expect(claimResultOutboxEvents).toHaveBeenCalledTimes(3)
   })
 
   it('safely consumes old events without explicit creation intent', async () => {
@@ -210,7 +241,7 @@ describe('Plane delivery worker', () => {
     expect(claimResultOutboxEvents).not.toHaveBeenCalled()
   })
 
-  it('uses a 70-second default lease for a 60-second delivery bound', async () => {
+  it('uses the conservative default lease for a rate-limited delivery bound', async () => {
     claimResultOutboxEvents.mockResolvedValue([])
     const adapter = {
       maxDeliveryMs: 60_000,
@@ -221,7 +252,7 @@ describe('Plane delivery worker', () => {
       runPlaneDeliveryBatch({adapter, environment, limit: 1}),
     ).resolves.toEqual(expect.objectContaining({enabled: true, claimed: 0}))
     expect(claimResultOutboxEvents).toHaveBeenCalledWith(
-      expect.objectContaining({leaseMs: 70_000}),
+      expect.objectContaining({leaseMs: 430_000}),
     )
   })
 

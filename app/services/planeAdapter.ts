@@ -1,5 +1,13 @@
 const DEFAULT_TIMEOUT_MS = 10_000
+// Two singleton Plane workers share one API key. Keep each process at half of
+// the approved combined budget unless an operator explicitly tightens it.
+const DEFAULT_MAX_REQUESTS_PER_MINUTE = 6
+const MAX_REQUESTS_PER_MINUTE = 60
+const MAX_REQUEST_WAIT_MS = 60_000
 const MAX_ERROR_LENGTH = 500
+
+/** The maximum documented number of Plane API calls for one outbox event. */
+export const MAX_PLANE_API_REQUESTS_PER_DELIVERY = 6
 
 const PLANE_DESTINATIONS = {
   'biz-development': {
@@ -21,6 +29,74 @@ export type PlaneAdapterConfig = {
   projectId: string
   projectIdentifier: string
   timeoutMs: number
+  maxRequestsPerMinute: number
+  maxRequestWaitMs: number
+}
+
+type Now = () => number
+type Sleep = (milliseconds: number) => Promise<void>
+
+export type PlaneRequestLimiter = {
+  wait(): Promise<void>
+}
+
+const sleep = (milliseconds: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, milliseconds))
+
+/**
+ * Enforces a rolling one-minute limit on Plane API starts. Reserving a slot
+ * before sleeping prevents concurrent callers from creating a post-wait burst.
+ */
+export const createPlaneRequestLimiter = ({
+  requestsPerMinute,
+  now = Date.now,
+  sleepFor = sleep,
+}: {
+  requestsPerMinute: number
+  now?: Now
+  sleepFor?: Sleep
+}): PlaneRequestLimiter => {
+  if (
+    !Number.isInteger(requestsPerMinute) ||
+    requestsPerMinute < 1 ||
+    requestsPerMinute > MAX_REQUESTS_PER_MINUTE
+  ) {
+    throw new Error(
+      `PLANE_MAX_REQUESTS_PER_MINUTE must be between 1 and ${MAX_REQUESTS_PER_MINUTE}`,
+    )
+  }
+  const reservedStarts: number[] = []
+
+  return {
+    async wait() {
+      const requestedOn = now()
+      const firstRelevantStart = reservedStarts.findIndex(
+        (startedOn) => startedOn > requestedOn - MAX_REQUEST_WAIT_MS,
+      )
+      if (firstRelevantStart > 0) {
+        reservedStarts.splice(0, firstRelevantStart)
+      } else if (firstRelevantStart === -1) {
+        reservedStarts.splice(0)
+      }
+      let permittedOn = requestedOn
+      while (
+        reservedStarts.filter(
+          (startedOn) =>
+            startedOn > permittedOn - MAX_REQUEST_WAIT_MS &&
+            startedOn <= permittedOn,
+        ).length >= requestsPerMinute
+      ) {
+        const oldestStart = reservedStarts.find(
+          (startedOn) => startedOn > permittedOn - MAX_REQUEST_WAIT_MS,
+        )
+        if (oldestStart === undefined) break
+        permittedOn = oldestStart + MAX_REQUEST_WAIT_MS
+      }
+      reservedStarts.push(permittedOn)
+      const delayMs = permittedOn - requestedOn
+      if (delayMs > 0) await sleepFor(delayMs)
+    },
+  }
 }
 
 export type PlaneIntakeCreateRequest = {
@@ -99,11 +175,29 @@ const required = (
   return value
 }
 
-const parsePositiveInteger = (value: string | undefined, fallback: number) => {
+const parsePositiveInteger = (
+  value: string | undefined,
+  fallback: number,
+  name: string,
+) => {
   if (value === undefined) return fallback
   const parsed = Number(value)
   if (!Number.isInteger(parsed) || parsed < 1) {
-    throw new Error('PLANE_API_TIMEOUT_MS must be a positive integer')
+    throw new Error(`${name} must be a positive integer`)
+  }
+  return parsed
+}
+
+const readMaxRequestsPerMinute = (value: string | undefined) => {
+  const parsed = parsePositiveInteger(
+    value,
+    DEFAULT_MAX_REQUESTS_PER_MINUTE,
+    'PLANE_MAX_REQUESTS_PER_MINUTE',
+  )
+  if (parsed > MAX_REQUESTS_PER_MINUTE) {
+    throw new Error(
+      `PLANE_MAX_REQUESTS_PER_MINUTE must be between 1 and ${MAX_REQUESTS_PER_MINUTE}`,
+    )
   }
   return parsed
 }
@@ -118,13 +212,19 @@ export const readPlaneAdapterConfig = (
   const destination =
     PLANE_DESTINATIONS[destinationName as keyof typeof PLANE_DESTINATIONS]
 
+  const maxRequestsPerMinute = readMaxRequestsPerMinute(
+    environment.PLANE_MAX_REQUESTS_PER_MINUTE,
+  )
   return {
     ...destination,
     apiKey: required(environment, 'PLANE_API_KEY'),
     timeoutMs: parsePositiveInteger(
       environment.PLANE_API_TIMEOUT_MS,
       DEFAULT_TIMEOUT_MS,
+      'PLANE_API_TIMEOUT_MS',
     ),
+    maxRequestsPerMinute,
+    maxRequestWaitMs: MAX_REQUEST_WAIT_MS,
   }
 }
 
@@ -263,8 +363,14 @@ export type PlaneAdapter = {
 export const createPlaneAdapter = (
   environment: Readonly<Record<string, string | undefined>> = process.env,
   fetchImplementation: Fetch = fetch,
+  requestLimiter?: PlaneRequestLimiter,
 ): PlaneAdapter => {
   const config = readPlaneAdapterConfig(environment)
+  const limiter =
+    requestLimiter ??
+    createPlaneRequestLimiter({
+      requestsPerMinute: config.maxRequestsPerMinute,
+    })
   const workItemPath = (workItemId: string, resource?: string) =>
     [
       'api',
@@ -283,6 +389,9 @@ export const createPlaneAdapter = (
     init: RequestInit,
     ambiguousWrite: boolean,
   ) => {
+    // This gate is immediately before every Plane API request. Attachment
+    // payload uploads use object storage and retain their own timeout below.
+    await limiter.wait()
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), config.timeoutMs)
     try {
@@ -548,8 +657,6 @@ export const createPlaneAdapter = (
     return {assetId, attachmentId}
   }
   const createIntake = async (request: PlaneIntakeCreateRequest) => {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), config.timeoutMs)
     const path = [
       'api',
       'v1',
@@ -560,6 +667,10 @@ export const createPlaneAdapter = (
       'intake-issues',
     ].join('/')
 
+    // The rate-limit queue can legitimately outlast the network timeout.
+    await limiter.wait()
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), config.timeoutMs)
     try {
       const response = await fetchImplementation(`${config.baseUrl}/${path}/`, {
         method: 'POST',

@@ -37,6 +37,8 @@ const config: PlaneAdapterConfig = {
   projectId: '67726ee5-7d0c-4656-8bc8-b2f8a959d5da',
   projectIdentifier: 'BIZ',
   timeoutMs: 10_000,
+  maxRequestsPerMinute: 12,
+  maxRequestWaitMs: 60_000,
 }
 
 const intent: PlaneDefectIntent = {
@@ -356,7 +358,7 @@ describe('Plane defect delivery adapter', () => {
       cycleStore: createCycleStore(),
     })
 
-    expect(adapter.maxDeliveryMs).toBe(72_000)
+    expect(adapter.maxDeliveryMs).toBe(432_000)
     await expect(
       runPlaneDeliveryBatch({
         adapter,

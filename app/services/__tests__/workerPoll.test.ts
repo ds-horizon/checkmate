@@ -1,4 +1,4 @@
-import {waitForWorkerPoll} from '../workerPoll'
+import {jitterWorkerPollInterval, waitForWorkerPoll} from '../workerPoll'
 
 describe('waitForWorkerPoll', () => {
   afterEach(() => {
@@ -28,10 +28,16 @@ describe('waitForWorkerPoll', () => {
   it('resolves normally after the poll interval', async () => {
     jest.useFakeTimers()
     const controller = new AbortController()
-    const waiting = waitForWorkerPoll(5_000, controller.signal)
+    const waiting = waitForWorkerPoll(5_000, controller.signal, () => 0.5)
 
     await jest.advanceTimersByTimeAsync(5_000)
 
     await expect(waiting).resolves.toBeUndefined()
+  })
+
+  it('keeps deterministic jitter inside the bounded range', () => {
+    expect(jitterWorkerPollInterval(5_000, () => 0)).toBe(4_500)
+    expect(jitterWorkerPollInterval(5_000, () => 0.999)).toBe(5_499)
+    expect(() => jitterWorkerPollInterval(0)).toThrow('positive integer')
   })
 })

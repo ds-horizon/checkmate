@@ -252,6 +252,82 @@ describe('Plane intake adapter', () => {
     )
   })
 
+  it('prefers the backing work item identity from an Intake envelope', async () => {
+    const fetchImplementation = jest.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            id: 'intake-id',
+            issue: 'work-item-id',
+            issue_detail: {
+              id: 'work-item-id',
+              sequence_id: 41,
+              project_identifier: 'BIZ',
+            },
+          }),
+          {status: 201, headers: {'content-type': 'application/json'}},
+        ),
+    )
+    const adapter = createPlaneAdapter(environment, fetchImplementation)
+
+    await expect(
+      adapter.createIntake({
+        title: 'Checkmate failed step',
+        description: 'Evidence',
+        priority: 'high',
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        intakeId: 'intake-id',
+        workItemId: 'work-item-id',
+        sequenceId: 41,
+        projectIdentifier: 'BIZ',
+      }),
+    )
+  })
+
+  it('uses a scalar backing issue id without confusing it with the Intake id', async () => {
+    const adapter = createPlaneAdapter(
+      environment,
+      jest.fn(async () =>
+        Response.json(
+          {id: 'intake-id', issue: 'work-item-id'},
+          {status: 201},
+        ),
+      ),
+    )
+
+    await expect(
+      adapter.createIntake({
+        title: 'Checkmate failed step',
+        description: 'Evidence',
+        priority: 'high',
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        intakeId: 'intake-id',
+        workItemId: 'work-item-id',
+        sequenceId: null,
+        projectIdentifier: null,
+      }),
+    )
+  })
+
+  it('fails closed when an Intake envelope has no backing issue identity', async () => {
+    const adapter = createPlaneAdapter(
+      environment,
+      jest.fn(async () => Response.json({id: 'intake-id'}, {status: 201})),
+    )
+
+    await expect(
+      adapter.createIntake({
+        title: 'Checkmate failed step',
+        description: 'Evidence',
+        priority: 'high',
+      }),
+    ).rejects.toMatchObject({kind: 'manual_attention'})
+  })
+
   it('shares the Plane request budget with other adapter methods before creating Intake', async () => {
     let now = 1_000
     const waits: number[] = []

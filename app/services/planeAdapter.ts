@@ -308,8 +308,14 @@ const parseIntakeResponse = (value: unknown): PlaneIntakeCreateResponse => {
     )
   }
 
-  const issue = isRecord(value.issue) ? value.issue : value
-  const workItemId = stringValue(issue.id)
+  const issue = isRecord(value.issue_detail)
+    ? value.issue_detail
+    : isRecord(value.issue)
+      ? value.issue
+      : null
+  const workItemId = issue
+    ? stringValue(issue.id)
+    : stringValue(value.issue)
   if (!workItemId) {
     throw new PlaneAdapterError(
       'Plane create response did not include a work item id',
@@ -320,8 +326,10 @@ const parseIntakeResponse = (value: unknown): PlaneIntakeCreateResponse => {
   return {
     intakeId: stringValue(value.id),
     workItemId,
-    sequenceId: numberValue(issue.sequence_id),
-    projectIdentifier: stringValue(issue.project_identifier),
+    sequenceId: issue ? numberValue(issue.sequence_id) : null,
+    projectIdentifier: issue
+      ? stringValue(issue.project_identifier)
+      : null,
     raw: value,
   }
 }

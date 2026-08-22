@@ -12,11 +12,14 @@ import {
 } from './plane-one-shot-environment'
 
 const originalProcessEnvironment = {...process.env}
+const dotenvEnvironment: Record<string, string> = {}
+dotenv.config({override: true, processEnv: dotenvEnvironment})
 dotenv.config({override: false})
 const effectiveEnvironment = {...process.env}
 const operatorEnvironment = capturePlaneOneShotOperatorEnvironment(
   originalProcessEnvironment,
   effectiveEnvironment,
+  dotenvEnvironment,
 )
 
 const USAGE = `Usage: yarn plane:reconcile-one-shot \\

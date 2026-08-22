@@ -44,18 +44,53 @@ describe('plane one-shot operator environment', () => {
     )
   })
 
-  it('refuses a worker enabled only by effective dotenv configuration', () => {
+  it('refuses a worker enabled only by raw dotenv configuration', () => {
     const captured = capturePlaneOneShotOperatorEnvironment(
       {[PLANE_CANARY_ONE_SHOT_FLAG]: 'true'},
       {
         [PLANE_CANARY_ONE_SHOT_FLAG]: 'false',
-        [PLANE_ONE_SHOT_BLOCKING_WORKER_FLAGS[1]]: 'true',
       },
+      {[PLANE_ONE_SHOT_BLOCKING_WORKER_FLAGS[1]]: 'true'},
     )
 
     expect(captured.enabled).toBe(true)
     expect(captured.workerRolesDisabled).toBe(false)
     expect(captured.environment[PLANE_ONE_SHOT_BLOCKING_WORKER_FLAGS[1]]).toBe(
+      'true',
+    )
+  })
+
+  it('does not use ordinary precedence to weaken the raw dotenv guard', () => {
+    const captured = capturePlaneOneShotOperatorEnvironment(
+      {
+        [PLANE_CANARY_ONE_SHOT_FLAG]: 'true',
+        [PLANE_ONE_SHOT_BLOCKING_WORKER_FLAGS[0]]: 'false',
+      },
+      {
+        [PLANE_CANARY_ONE_SHOT_FLAG]: 'true',
+        [PLANE_ONE_SHOT_BLOCKING_WORKER_FLAGS[0]]: 'true',
+      },
+      {[PLANE_ONE_SHOT_BLOCKING_WORKER_FLAGS[0]]: 'false'},
+    )
+
+    expect(captured.workerRolesDisabled).toBe(true)
+  })
+
+  it('refuses a worker when process false hides dotenv true', () => {
+    const captured = capturePlaneOneShotOperatorEnvironment(
+      {
+        [PLANE_CANARY_ONE_SHOT_FLAG]: 'true',
+        [PLANE_ONE_SHOT_BLOCKING_WORKER_FLAGS[0]]: 'false',
+      },
+      {
+        [PLANE_CANARY_ONE_SHOT_FLAG]: 'true',
+        [PLANE_ONE_SHOT_BLOCKING_WORKER_FLAGS[0]]: 'false',
+      },
+      {[PLANE_ONE_SHOT_BLOCKING_WORKER_FLAGS[0]]: 'true'},
+    )
+
+    expect(captured.workerRolesDisabled).toBe(false)
+    expect(captured.environment[PLANE_ONE_SHOT_BLOCKING_WORKER_FLAGS[0]]).toBe(
       'true',
     )
   })

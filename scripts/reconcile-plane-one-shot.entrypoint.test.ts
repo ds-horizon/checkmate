@@ -140,9 +140,51 @@ describe('plane one-shot entrypoint environment boundary', () => {
     expect(output).not.toContain('temporary-entrypoint-secret')
   })
 
+  it('refuses a delivery worker when process false hides .env true', () => {
+    const result = runEntrypoint({
+      processEnvironment: {
+        PLANE_CANARY_ONE_SHOT_ENABLED: 'true',
+        PLANE_DELIVERY_WORKER_ENABLED: 'false',
+      },
+      dotEnv: ordinaryPlaneConfig({timeout: '100'}).replace(
+        'PLANE_DELIVERY_WORKER_ENABLED=false',
+        'PLANE_DELIVERY_WORKER_ENABLED=true',
+      ),
+    })
+    const output = `${result.stdout}\n${result.stderr}`
+
+    expect(result.status).toBe(1)
+    expect(result.error).toBeUndefined()
+    expect(output).toContain(
+      'Plane one-shot refused while a global delivery/readiness worker role is enabled',
+    )
+    expect(output).not.toContain('temporary-entrypoint-secret')
+  })
+
   it('refuses a readiness worker enabled only by .env before the database client loads', () => {
     const result = runEntrypoint({
       processEnvironment: {PLANE_CANARY_ONE_SHOT_ENABLED: 'true'},
+      dotEnv: ordinaryPlaneConfig({timeout: '100'}).replace(
+        'PLANE_RETEST_READINESS_ENABLED=false',
+        'PLANE_RETEST_READINESS_ENABLED=true',
+      ),
+    })
+    const output = `${result.stdout}\n${result.stderr}`
+
+    expect(result.status).toBe(1)
+    expect(result.error).toBeUndefined()
+    expect(output).toContain(
+      'Plane one-shot refused while a global delivery/readiness worker role is enabled',
+    )
+    expect(output).not.toContain('temporary-entrypoint-secret')
+  })
+
+  it('refuses a readiness worker when process false hides .env true', () => {
+    const result = runEntrypoint({
+      processEnvironment: {
+        PLANE_CANARY_ONE_SHOT_ENABLED: 'true',
+        PLANE_RETEST_READINESS_ENABLED: 'false',
+      },
       dotEnv: ordinaryPlaneConfig({timeout: '100'}).replace(
         'PLANE_RETEST_READINESS_ENABLED=false',
         'PLANE_RETEST_READINESS_ENABLED=true',

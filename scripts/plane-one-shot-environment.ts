@@ -20,11 +20,14 @@ export type PlaneOneShotOperatorEnvironment = {
  * Capture the operator guard before importing the database client. The
  * entrypoint loads ordinary .env configuration with process precedence first,
  * but canary enablement remains process-only and worker refusal is the union
- * of the original process and effective configuration environments.
+ * of the original process and raw .env environments. The raw map must be
+ * captured separately because ordinary process precedence can hide a .env
+ * worker flag set to true behind a process value of false.
  */
 export const capturePlaneOneShotOperatorEnvironment = (
   originalEnvironment: Environment = process.env,
   effectiveEnvironment: Environment = originalEnvironment,
+  dotenvEnvironment: Environment = {},
 ): PlaneOneShotOperatorEnvironment => {
   const snapshot: Record<string, string | undefined> = {
     [PLANE_CANARY_ONE_SHOT_FLAG]:
@@ -32,10 +35,9 @@ export const capturePlaneOneShotOperatorEnvironment = (
   }
   for (const flag of PLANE_ONE_SHOT_BLOCKING_WORKER_FLAGS) {
     snapshot[flag] =
-      originalEnvironment[flag] === 'true' ||
-      effectiveEnvironment[flag] === 'true'
+      originalEnvironment[flag] === 'true' || dotenvEnvironment[flag] === 'true'
         ? 'true'
-        : originalEnvironment[flag] ?? effectiveEnvironment[flag]
+        : originalEnvironment[flag] ?? dotenvEnvironment[flag]
   }
 
   return {
@@ -45,7 +47,7 @@ export const capturePlaneOneShotOperatorEnvironment = (
     workerRolesDisabled: PLANE_ONE_SHOT_BLOCKING_WORKER_FLAGS.every(
       (flag) =>
         originalEnvironment[flag] !== 'true' &&
-        effectiveEnvironment[flag] !== 'true',
+        dotenvEnvironment[flag] !== 'true',
     ),
   }
 }

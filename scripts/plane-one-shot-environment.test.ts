@@ -9,7 +9,12 @@ describe('plane one-shot operator environment', () => {
     const processEnvironment: Record<string, string | undefined> = {
       [PLANE_CANARY_ONE_SHOT_FLAG]: 'true',
     }
-    const captured = capturePlaneOneShotOperatorEnvironment(processEnvironment)
+    const captured = capturePlaneOneShotOperatorEnvironment(
+      processEnvironment,
+      {
+        [PLANE_CANARY_ONE_SHOT_FLAG]: 'false',
+      },
+    )
 
     processEnvironment[PLANE_CANARY_ONE_SHOT_FLAG] = 'false'
 
@@ -22,13 +27,35 @@ describe('plane one-shot operator environment', () => {
       [PLANE_CANARY_ONE_SHOT_FLAG]: 'true',
       [PLANE_ONE_SHOT_BLOCKING_WORKER_FLAGS[0]]: 'true',
     }
-    const captured = capturePlaneOneShotOperatorEnvironment(processEnvironment)
+    const captured = capturePlaneOneShotOperatorEnvironment(
+      processEnvironment,
+      {
+        [PLANE_CANARY_ONE_SHOT_FLAG]: 'true',
+        [PLANE_ONE_SHOT_BLOCKING_WORKER_FLAGS[0]]: 'false',
+      },
+    )
 
     processEnvironment[PLANE_ONE_SHOT_BLOCKING_WORKER_FLAGS[0]] = 'false'
 
     expect(captured.enabled).toBe(true)
     expect(captured.workerRolesDisabled).toBe(false)
     expect(captured.environment[PLANE_ONE_SHOT_BLOCKING_WORKER_FLAGS[0]]).toBe(
+      'true',
+    )
+  })
+
+  it('refuses a worker enabled only by effective dotenv configuration', () => {
+    const captured = capturePlaneOneShotOperatorEnvironment(
+      {[PLANE_CANARY_ONE_SHOT_FLAG]: 'true'},
+      {
+        [PLANE_CANARY_ONE_SHOT_FLAG]: 'false',
+        [PLANE_ONE_SHOT_BLOCKING_WORKER_FLAGS[1]]: 'true',
+      },
+    )
+
+    expect(captured.enabled).toBe(true)
+    expect(captured.workerRolesDisabled).toBe(false)
+    expect(captured.environment[PLANE_ONE_SHOT_BLOCKING_WORKER_FLAGS[1]]).toBe(
       'true',
     )
   })
@@ -41,6 +68,12 @@ describe('plane one-shot operator environment', () => {
       capturePlaneOneShotOperatorEnvironment({
         [PLANE_CANARY_ONE_SHOT_FLAG]: '1',
       }).enabled,
+    ).toBe(false)
+    expect(
+      capturePlaneOneShotOperatorEnvironment(
+        {},
+        {[PLANE_CANARY_ONE_SHOT_FLAG]: 'true'},
+      ).enabled,
     ).toBe(false)
   })
 })

@@ -1,3 +1,4 @@
+import dotenv from 'dotenv'
 import {
   createPlaneAdapter,
   readPlaneAdapterConfig,
@@ -10,7 +11,13 @@ import {
   PLANE_CANARY_ONE_SHOT_FLAG,
 } from './plane-one-shot-environment'
 
-const operatorEnvironment = capturePlaneOneShotOperatorEnvironment()
+const originalProcessEnvironment = {...process.env}
+dotenv.config({override: false})
+const effectiveEnvironment = {...process.env}
+const operatorEnvironment = capturePlaneOneShotOperatorEnvironment(
+  originalProcessEnvironment,
+  effectiveEnvironment,
+)
 
 const USAGE = `Usage: yarn plane:reconcile-one-shot \\
   --project-id <id> --run-id <id> --test-id <id> \\
@@ -123,10 +130,10 @@ const main = async () => {
 
   // The API key is read only inside this process and is never included in the
   // result or error output. The one-shot path performs a single bounded GET.
+  const config = readPlaneAdapterConfig(operatorEnvironment.configEnvironment)
+  const planeAdapter = createPlaneAdapter(operatorEnvironment.configEnvironment)
   const {client} = await import('../app/db/client')
   try {
-    const config = readPlaneAdapterConfig()
-    const planeAdapter = createPlaneAdapter()
     const {reconcilePlaneDefectOneShot} = await import(
       '../app/services/planeOneShotReconciliation'
     )

@@ -3,7 +3,11 @@
 The `plane:reconcile-one-shot` command is an internal, operator-run canary for
 one existing BIZ-41 defect cycle. It is disabled unless
 `PLANE_CANARY_ONE_SHOT_ENABLED=true` is set in the ephemeral process. The
-Plane API key is read from that process environment and is never printed.
+ordinary Plane configuration, including the API key, may be supplied by the
+working directory's `.env`; process environment values take precedence and the
+key is never printed. The canary flag is process-only, while an exactly `true`
+delivery/readiness worker flag in either the original process environment or
+loaded `.env` refuses the run.
 
 The command requires exact `projectId`, `runId`, `testId`, work-item ID, Intake
 ID, correlation key, and `biz-development` destination. It locks and validates

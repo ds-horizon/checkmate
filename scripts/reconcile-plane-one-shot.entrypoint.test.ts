@@ -82,6 +82,8 @@ const runEntrypoint = ({
 const ordinaryPlaneConfig = ({timeout}: {timeout: string}) => `
 PLANE_CANARY_ONE_SHOT_ENABLED=false
 PLANE_DELIVERY_WORKER_ENABLED=false
+PLANE_RETEST_READINESS_ENABLED=false
+PLANE_RETEST_READINESS_WORKER_ENABLED=false
 PLANE_DESTINATION=biz-development
 PLANE_API_KEY=temporary-entrypoint-secret
 PLANE_API_TIMEOUT_MS=${timeout}
@@ -102,13 +104,49 @@ describe('plane one-shot entrypoint environment boundary', () => {
     expect(output).not.toContain('temporary-entrypoint-secret')
   })
 
-  it('refuses a process-level worker flag before .env or the database client can mask it', () => {
+  it('refuses a process-level worker flag before the database client can mask it', () => {
     const result = runEntrypoint({
       processEnvironment: {
         PLANE_CANARY_ONE_SHOT_ENABLED: 'true',
         PLANE_DELIVERY_WORKER_ENABLED: 'true',
       },
       dotEnv: ordinaryPlaneConfig({timeout: '100'}),
+    })
+    const output = `${result.stdout}\n${result.stderr}`
+
+    expect(result.status).toBe(1)
+    expect(result.error).toBeUndefined()
+    expect(output).toContain(
+      'Plane one-shot refused while a global delivery/readiness worker role is enabled',
+    )
+    expect(output).not.toContain('temporary-entrypoint-secret')
+  })
+
+  it('refuses a delivery worker enabled only by .env before the database client loads', () => {
+    const result = runEntrypoint({
+      processEnvironment: {PLANE_CANARY_ONE_SHOT_ENABLED: 'true'},
+      dotEnv: ordinaryPlaneConfig({timeout: '100'}).replace(
+        'PLANE_DELIVERY_WORKER_ENABLED=false',
+        'PLANE_DELIVERY_WORKER_ENABLED=true',
+      ),
+    })
+    const output = `${result.stdout}\n${result.stderr}`
+
+    expect(result.status).toBe(1)
+    expect(result.error).toBeUndefined()
+    expect(output).toContain(
+      'Plane one-shot refused while a global delivery/readiness worker role is enabled',
+    )
+    expect(output).not.toContain('temporary-entrypoint-secret')
+  })
+
+  it('refuses a readiness worker enabled only by .env before the database client loads', () => {
+    const result = runEntrypoint({
+      processEnvironment: {PLANE_CANARY_ONE_SHOT_ENABLED: 'true'},
+      dotEnv: ordinaryPlaneConfig({timeout: '100'}).replace(
+        'PLANE_RETEST_READINESS_ENABLED=false',
+        'PLANE_RETEST_READINESS_ENABLED=true',
+      ),
     })
     const output = `${result.stdout}\n${result.stderr}`
 

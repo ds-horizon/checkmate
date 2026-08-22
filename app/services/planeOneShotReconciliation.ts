@@ -27,6 +27,10 @@ const DEFAULT_LEASE_MS = 430_000
 const MIN_LEASE_MS = 1_000
 const MAX_LEASE_MS = 24 * 60 * 60 * 1_000
 export const PLANE_ONE_SHOT_MAX_DEADLOCK_ATTEMPTS = 3
+export const PLANE_ONE_SHOT_FINALIZATION_FAILURE_MARKER =
+  'operator_reconciliation_required: provider GET succeeded; finalization failed'
+export const PLANE_ONE_SHOT_PROVIDER_CALL_STARTED_MARKER =
+  'operator_reconciliation_required: provider call started'
 
 const BLOCKING_WORKER_FLAGS = [
   'PLANE_DELIVERY_WORKER_ENABLED',
@@ -56,6 +60,20 @@ export type PlaneOneShotReconciliationResult =
       testRunMapId: number
       defectCycleId: number
       resultOutboxId: number
+      providerWorkItemId: string
+      providerIntakeId: string
+      providerStateId: string
+    }
+  | {
+      outcome: 'verified'
+      projectId: number
+      runId: number
+      testId: number
+      testRunMapId: number
+      defectCycleId: number
+      resultOutboxId: number
+      cycleState: DefectCycleState
+      outboxDeliveryState: string
       providerWorkItemId: string
       providerIntakeId: string
       providerStateId: string
@@ -132,6 +150,7 @@ type ReconciliationOutbox = {
   leaseToken: string | null
   leaseExpiresOn: Date | null
   deliveredOn: Date | null
+  lastError: string | null
 }
 
 type ClaimedReconciliation = {
@@ -185,7 +204,7 @@ type TransactionLike = {
   update(table: unknown): UpdateQueryLike
 }
 
-type OneShotDatabase = {
+export type OneShotDatabase = {
   select(selection: unknown): SelectQueryLike
   transaction<T>(callback: (trx: TransactionLike) => Promise<T>): Promise<T>
 }
@@ -453,6 +472,7 @@ type OneShotCandidate = {
   resultRevisionId: number
   defectCycleId: number
   resultOutboxId: number
+  providerStateId?: string
 }
 
 type CandidateResolution =
@@ -463,6 +483,12 @@ type DeliveredReplayResolution =
   | {outcome: 'none'}
   | {outcome: 'ready'; candidate: OneShotCandidate}
   | {outcome: 'refused'; result: PlaneOneShotReconciliationResult}
+
+const hasProviderCallFence = (lastError: string | null) =>
+  Boolean(
+    lastError?.startsWith(PLANE_ONE_SHOT_PROVIDER_CALL_STARTED_MARKER) ||
+      lastError?.startsWith(PLANE_ONE_SHOT_FINALIZATION_FAILURE_MARKER),
+  )
 
 /**
  * Find a completed create event by its historical identity before looking
@@ -551,6 +577,7 @@ const resolveDeliveredReplay = async ({
         leaseToken: resultOutbox.leaseToken,
         leaseExpiresOn: resultOutbox.leaseExpiresOn,
         deliveredOn: resultOutbox.deliveredOn,
+        lastError: resultOutbox.lastError,
       })
       .from(resultOutbox)
       .where(
@@ -620,8 +647,85 @@ const resolveDeliveredReplay = async ({
       resultRevisionId: outbox.resultRevisionId,
       defectCycleId: cycle.defectCycleId,
       resultOutboxId: outbox.resultOutboxId,
+      providerStateId: cycle.providerStateId ?? undefined,
     },
   }
+}
+
+/**
+ * Verify the map and revision identity for a delivered replay in a fresh,
+ * read-only transaction. Historical cycles may be inactive or on a later
+ * lifecycle state, but they must still belong to the exact requested map,
+ * run, test, and project before verify-only can report a match.
+ */
+const validateDeliveredReplayIdentity = async ({
+  input,
+  candidate,
+  database,
+}: {
+  input: PlaneOneShotReconciliationInput
+  candidate: OneShotCandidate
+  database: OneShotDatabase
+}): Promise<PlaneOneShotReconciliationResult | null> => {
+  const validation = await database.transaction(async (trx) => {
+    const maps = await selectRows<ReconciliationMap>(
+      trx
+        .select({
+          testRunMapId: testRunMap.testRunMapId,
+          projectId: testRunMap.projectId,
+          testProjectId: tests.projectId,
+          runId: testRunMap.runId,
+          testId: testRunMap.testId,
+          isIncluded: testRunMap.isIncluded,
+          currentResultRevisionId: testRunMap.currentResultRevisionId,
+          runProjectId: runs.projectId,
+          runStatus: runs.status,
+        })
+        .from(testRunMap)
+        .leftJoin(runs, eq(runs.runId, testRunMap.runId))
+        .leftJoin(tests, eq(tests.testId, testRunMap.testId))
+        .where(eq(testRunMap.testRunMapId, candidate.testRunMapId))
+        .limit(2),
+    )
+    const [revision] = await selectRows<ReconciliationRevision>(
+      trx
+        .select({
+          resultRevisionId: resultRevisions.resultRevisionId,
+          testRunMapId: resultRevisions.testRunMapId,
+          projectId: resultRevisions.projectId,
+          runId: resultRevisions.runId,
+          testId: resultRevisions.testId,
+        })
+        .from(resultRevisions)
+        .where(eq(resultRevisions.resultRevisionId, candidate.resultRevisionId))
+        .limit(2),
+    )
+    const map = maps[0]
+    const valid =
+      maps.length === 1 &&
+      map.testRunMapId === candidate.testRunMapId &&
+      map.projectId === input.projectId &&
+      map.testProjectId === input.projectId &&
+      map.runId === input.runId &&
+      map.testId === input.testId &&
+      revision?.resultRevisionId === candidate.resultRevisionId &&
+      revision.testRunMapId === candidate.testRunMapId &&
+      revision.projectId === input.projectId &&
+      revision.runId === input.runId &&
+      revision.testId === input.testId
+    return valid
+      ? null
+      : refusal(
+          input,
+          'Historical replay map or result revision did not match the exact target',
+          {
+            testRunMapId: candidate.testRunMapId,
+            defectCycleId: candidate.defectCycleId,
+            resultOutboxId: candidate.resultOutboxId,
+          },
+        )
+  })
+  return validation
 }
 
 /**
@@ -903,6 +1007,7 @@ const loadAndClaim = async ({
             leaseToken: resultOutbox.leaseToken,
             leaseExpiresOn: resultOutbox.leaseExpiresOn,
             deliveredOn: resultOutbox.deliveredOn,
+            lastError: resultOutbox.lastError,
           })
           .from(resultOutbox)
           .where(
@@ -951,6 +1056,21 @@ const loadAndClaim = async ({
           result: refusal(
             input,
             'Exact Plane create outbox identity changed during lock',
+            {
+              testRunMapId: resolved.candidate.testRunMapId,
+              defectCycleId: resolved.candidate.defectCycleId,
+              resultOutboxId: outbox.resultOutboxId,
+            },
+          ),
+        }
+      }
+
+      if (hasProviderCallFence(outbox.lastError)) {
+        return {
+          outcome: 'refused' as const,
+          result: refusal(
+            input,
+            'A prior provider call started or database finalization failed; explicit operator reconciliation is required',
             {
               testRunMapId: resolved.candidate.testRunMapId,
               defectCycleId: resolved.candidate.defectCycleId,
@@ -1268,7 +1388,10 @@ const loadAndClaim = async ({
           leaseToken: claim.leaseToken,
           leaseExpiresOn: claim.leaseExpiresOn,
           attemptCount: sql`${resultOutbox.attemptCount} + 1`,
-          lastError: null,
+          // This marker is committed in the claim transaction before the
+          // external GET. It is the durable operator fence if finalization or
+          // even the later manual-attention write fails.
+          lastError: PLANE_ONE_SHOT_PROVIDER_CALL_STARTED_MARKER,
         })
         .where(
           and(
@@ -1305,10 +1428,12 @@ const loadAndClaim = async ({
 const manualAttention = async ({
   claim,
   reason,
+  finalizationFailure = false,
   database,
 }: {
   claim: ClaimedReconciliation
   reason: string
+  finalizationFailure?: boolean
   database: OneShotDatabase
 }) =>
   withPlaneOneShotDeadlockRetry((attempt) =>
@@ -1436,7 +1561,11 @@ const manualAttention = async ({
           deliveryState: 'manual_attention',
           leaseToken: null,
           leaseExpiresOn: null,
-          lastError: sanitizePlaneError(reason),
+          lastError: `${
+            finalizationFailure
+              ? PLANE_ONE_SHOT_FINALIZATION_FAILURE_MARKER
+              : PLANE_ONE_SHOT_PROVIDER_CALL_STARTED_MARKER
+          }: ${sanitizePlaneError(reason)}`,
           deliveredOn: null,
         })
         .where(
@@ -1649,6 +1778,237 @@ const finalizeSuccess = async ({
     }),
   )
 
+const verifyOnlyPreflight = async ({
+  input,
+  config,
+  planeAdapter,
+  database,
+  now,
+}: {
+  input: PlaneOneShotReconciliationInput
+  config: PlaneAdapterConfig
+  planeAdapter: Pick<PlaneAdapter, 'getWorkItem'>
+  database: OneShotDatabase
+  now: Date
+}): Promise<PlaneOneShotReconciliationResult> => {
+  const replay = await resolveDeliveredReplay({input, config, database})
+  if (replay.outcome === 'refused') return replay.result
+  if (replay.outcome === 'ready') {
+    const replayIdentityFailure = await validateDeliveredReplayIdentity({
+      input,
+      candidate: replay.candidate,
+      database,
+    })
+    if (replayIdentityFailure) return replayIdentityFailure
+    return {
+      outcome: 'matched',
+      projectId: input.projectId,
+      runId: input.runId,
+      testId: input.testId,
+      testRunMapId: replay.candidate.testRunMapId,
+      defectCycleId: replay.candidate.defectCycleId,
+      resultOutboxId: replay.candidate.resultOutboxId,
+      providerWorkItemId: input.expectedWorkItemId,
+      providerIntakeId: input.expectedIntakeId,
+      providerStateId: replay.candidate.providerStateId ?? 'unknown',
+    }
+  }
+
+  const resolved = await resolveCandidate({input, database})
+  if (resolved.outcome === 'refused') return resolved.result
+
+  const preflight = await database.transaction(async (trx) => {
+    const maps = await selectRows<ReconciliationMap>(
+      trx
+        .select({
+          testRunMapId: testRunMap.testRunMapId,
+          projectId: testRunMap.projectId,
+          testProjectId: tests.projectId,
+          runId: testRunMap.runId,
+          testId: testRunMap.testId,
+          isIncluded: testRunMap.isIncluded,
+          currentResultRevisionId: testRunMap.currentResultRevisionId,
+          runProjectId: runs.projectId,
+          runStatus: runs.status,
+        })
+        .from(testRunMap)
+        .leftJoin(runs, eq(runs.runId, testRunMap.runId))
+        .leftJoin(tests, eq(tests.testId, testRunMap.testId))
+        .where(
+          and(
+            eq(testRunMap.projectId, input.projectId),
+            eq(testRunMap.runId, input.runId),
+            eq(testRunMap.testId, input.testId),
+          ),
+        )
+        .limit(2),
+    )
+    if (maps.length !== 1) return refusal(input, 'Exact testRunMap cardinality changed during verify-only preflight')
+    const map = maps[0]
+    const cycles = await selectRows<ReconciliationCycle>(
+      trx
+        .select({
+          defectCycleId: defectCycles.defectCycleId,
+          testRunMapId: defectCycles.testRunMapId,
+          projectId: defectCycles.projectId,
+          runId: defectCycles.runId,
+          testId: defectCycles.testId,
+          activeMarker: defectCycles.activeMarker,
+          state: defectCycles.state,
+          currentEvidenceRevisionId: defectCycles.currentEvidenceRevisionId,
+          provider: defectCycles.provider,
+          providerWorkspaceId: defectCycles.providerWorkspaceId,
+          providerProjectId: defectCycles.providerProjectId,
+          providerWorkItemId: defectCycles.providerWorkItemId,
+          providerIntakeId: defectCycles.providerIntakeId,
+          providerStateId: defectCycles.providerStateId,
+          providerSequenceId: defectCycles.providerSequenceId,
+          providerUrl: defectCycles.providerUrl,
+          createCorrelationKey: defectCycles.createCorrelationKey,
+        })
+        .from(defectCycles)
+        .where(
+          and(
+            eq(defectCycles.testRunMapId, resolved.candidate.testRunMapId),
+            eq(defectCycles.activeMarker, 1),
+          ),
+        )
+        .limit(2),
+    )
+    if (
+      cycles.length !== 1 ||
+      cycles[0].defectCycleId !== resolved.candidate.defectCycleId
+    )
+      return refusal(
+        input,
+        'Exact defect cycle cardinality changed during verify-only preflight',
+      )
+    const cycle = cycles[0]
+    const outboxes = await selectRows<ReconciliationOutbox>(
+      trx
+        .select({
+          resultOutboxId: resultOutbox.resultOutboxId,
+          eventKey: resultOutbox.eventKey,
+          eventType: resultOutbox.eventType,
+          aggregateType: resultOutbox.aggregateType,
+          aggregateId: resultOutbox.aggregateId,
+          resultRevisionId: resultOutbox.resultRevisionId,
+          payload: resultOutbox.payload,
+          deliveryState: resultOutbox.deliveryState,
+          availableOn: resultOutbox.availableOn,
+          leaseToken: resultOutbox.leaseToken,
+          leaseExpiresOn: resultOutbox.leaseExpiresOn,
+          deliveredOn: resultOutbox.deliveredOn,
+          lastError: resultOutbox.lastError,
+        })
+        .from(resultOutbox)
+        .where(
+          and(
+            eq(resultOutbox.eventType, CREATE_EVENT_TYPE),
+            eq(resultOutbox.aggregateType, 'defect_cycle'),
+            eq(resultOutbox.aggregateId, resolved.candidate.defectCycleId),
+            eq(resultOutbox.resultRevisionId, resolved.candidate.resultRevisionId),
+          ),
+        )
+        .limit(2),
+    )
+    if (
+      outboxes.length !== 1 ||
+      outboxes[0].resultOutboxId !== resolved.candidate.resultOutboxId
+    )
+      return refusal(
+        input,
+        'Exact create outbox cardinality changed during verify-only preflight',
+      )
+    const outbox = outboxes[0]
+    const [revision] = await selectRows<ReconciliationRevision>(
+      trx
+        .select({
+          resultRevisionId: resultRevisions.resultRevisionId,
+          testRunMapId: resultRevisions.testRunMapId,
+          projectId: resultRevisions.projectId,
+          runId: resultRevisions.runId,
+          testId: resultRevisions.testId,
+        })
+        .from(resultRevisions)
+        .where(eq(resultRevisions.resultRevisionId, resolved.candidate.resultRevisionId))
+        .limit(2),
+    )
+    const intent = outbox.payload.planeDefectIntent
+    const valid =
+      revision &&
+      map.testRunMapId === resolved.candidate.testRunMapId &&
+      map.projectId === input.projectId &&
+      map.testProjectId === input.projectId &&
+      map.runId === input.runId &&
+      map.testId === input.testId &&
+      map.isIncluded === true &&
+      map.runProjectId === input.projectId &&
+      map.runStatus === 'Active' &&
+      map.currentResultRevisionId === resolved.candidate.resultRevisionId &&
+      cycle.testRunMapId === map.testRunMapId &&
+      cycle.projectId === input.projectId &&
+      cycle.runId === input.runId &&
+      cycle.testId === input.testId &&
+      cycle.activeMarker === 1 &&
+      ['intake_pending', 'manual_attention', 'intake_open', 'work_item_open'].includes(cycle.state) &&
+      cycle.currentEvidenceRevisionId === resolved.candidate.resultRevisionId &&
+      cycle.provider === PLANE_PROVIDER &&
+      cycle.providerWorkspaceId === config.workspaceId &&
+      cycle.providerProjectId === config.projectId &&
+      cycle.createCorrelationKey === input.expectedCorrelationKey &&
+      outbox.eventKey === CREATE_EVENT_KEY(cycle.defectCycleId) &&
+      outbox.eventType === CREATE_EVENT_TYPE &&
+      outbox.aggregateType === 'defect_cycle' &&
+      outbox.aggregateId === cycle.defectCycleId &&
+      outbox.resultRevisionId === revision.resultRevisionId &&
+      outbox.payload.resultRevisionId === revision.resultRevisionId &&
+      outbox.payload.testRunMapId === map.testRunMapId &&
+      outbox.payload.projectId === input.projectId &&
+      outbox.payload.runId === input.runId &&
+      outbox.payload.testId === input.testId &&
+      outbox.payload.defectCycleId === cycle.defectCycleId &&
+      Boolean(intent?.create) &&
+      intent?.defectCycleId === cycle.defectCycleId &&
+      intent?.correlationKey === input.expectedCorrelationKey &&
+      !hasProviderCallFence(outbox.lastError) &&
+      outbox.deliveryState !== 'delivered' &&
+      !(outbox.deliveryState === 'leased' && outbox.leaseExpiresOn && outbox.leaseExpiresOn.getTime() > now.getTime()) &&
+      claimable(outbox, now) &&
+      (cycle.providerWorkItemId === null || cycle.providerWorkItemId === input.expectedWorkItemId) &&
+      (cycle.providerIntakeId === null || cycle.providerIntakeId === input.expectedIntakeId)
+    if (!valid) return refusal(input, 'Exact map, run, test, cycle, revision, or create-outbox preconditions did not match verify-only target', {
+      testRunMapId: map.testRunMapId,
+      defectCycleId: cycle.defectCycleId,
+      resultOutboxId: outbox.resultOutboxId,
+    })
+    return {map, cycle, revision, outbox, intent} as const
+  })
+  if ('outcome' in preflight) return preflight
+  const workItem = await planeAdapter.getWorkItem(input.expectedWorkItemId)
+  const observed = validateProviderObservation({
+    workItem,
+    input,
+    config,
+    intent: preflight.intent,
+    payload: preflight.outbox.payload,
+  })
+  return {
+    outcome: 'verified',
+    projectId: input.projectId,
+    runId: input.runId,
+    testId: input.testId,
+    testRunMapId: preflight.map.testRunMapId,
+    defectCycleId: preflight.cycle.defectCycleId,
+    resultOutboxId: preflight.outbox.resultOutboxId,
+    cycleState: preflight.cycle.state,
+    outboxDeliveryState: preflight.outbox.deliveryState,
+    providerWorkItemId: workItem.workItemId,
+    providerIntakeId: observed.intakeId ?? input.expectedIntakeId,
+    providerStateId: workItem.stateId,
+  }
+}
+
 export const isPlaneOneShotReconciliationEnabled = (
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ) => environment[PLANE_CANARY_ONE_SHOT_FLAG] === 'true'
@@ -1662,6 +2022,7 @@ export const reconcilePlaneDefectOneShot = async ({
   leaseMs = DEFAULT_LEASE_MS,
   environment = process.env,
   enabled = isPlaneOneShotReconciliationEnabled(environment),
+  verifyOnly = false,
 }: {
   input: PlaneOneShotReconciliationInput
   config: PlaneAdapterConfig
@@ -1671,6 +2032,7 @@ export const reconcilePlaneDefectOneShot = async ({
   leaseMs?: number
   environment?: Readonly<Record<string, string | undefined>>
   enabled?: boolean
+  verifyOnly?: boolean
 }): Promise<PlaneOneShotReconciliationResult> => {
   if (!enabled) {
     return {
@@ -1720,6 +2082,10 @@ export const reconcilePlaneDefectOneShot = async ({
     )
   }
 
+  if (verifyOnly) {
+    return verifyOnlyPreflight({input, config, planeAdapter, database, now})
+  }
+
   const claimed = await loadAndClaim({input, config, now, leaseMs, database})
   if (claimed.outcome === 'refused') return claimed.result
   const claim = claimed.claim
@@ -1739,18 +2105,43 @@ export const reconcilePlaneDefectOneShot = async ({
   }
 
   let workItem: PlaneWorkItem
+  let observed: PlaneObservedFields
   try {
     workItem = await planeAdapter.getWorkItem(input.expectedWorkItemId)
     const intent = claim.outbox.payload.planeDefectIntent
     if (!intent?.create)
       throw new Error('Plane create intent was missing during reconciliation')
-    const observed = validateProviderObservation({
+    observed = validateProviderObservation({
       workItem,
       input,
       config,
       intent,
       payload: claim.outbox.payload,
     })
+  } catch (error) {
+    const reason = sanitizePlaneError(error)
+    try {
+      await manualAttention({claim, reason, database})
+    } catch (finalizeError) {
+      throw new Error(
+        `${reason}; could not record manual attention: ${sanitizePlaneError(
+          finalizeError,
+        )}`,
+      )
+    }
+    return {
+      outcome: 'manual_attention',
+      projectId: input.projectId,
+      runId: input.runId,
+      testId: input.testId,
+      testRunMapId: claim.map.testRunMapId,
+      defectCycleId: claim.cycle.defectCycleId,
+      resultOutboxId: claim.outbox.resultOutboxId,
+      reason,
+    }
+  }
+
+  try {
     await finalizeSuccess({
       claim,
       observed,
@@ -1772,11 +2163,11 @@ export const reconcilePlaneDefectOneShot = async ({
   } catch (error) {
     const reason = sanitizePlaneError(error)
     try {
-      await manualAttention({claim, reason, database})
-    } catch (finalizeError) {
+      await manualAttention({claim, reason, finalizationFailure: true, database})
+    } catch (manualAttentionError) {
       throw new Error(
         `${reason}; could not record manual attention: ${sanitizePlaneError(
-          finalizeError,
+          manualAttentionError,
         )}`,
       )
     }

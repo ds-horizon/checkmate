@@ -114,6 +114,33 @@ describe('Plane adapter configuration', () => {
     expect(waits).toEqual([60_000])
     expect(fetchImplementation).toHaveBeenCalledTimes(7)
   })
+
+  it('projects the one-shot runtime surface to one authoritative GET', async () => {
+    const fetchImplementation = jest.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      Response.json({
+        id: 'work-item-id',
+        state: {id: 'done-state-id'},
+      }),
+    )
+    const fullAdapter = createPlaneAdapter(environment, fetchImplementation)
+    const {getWorkItem} = fullAdapter
+    const oneShotAdapter = {getWorkItem}
+
+    expect(Object.keys(oneShotAdapter)).toEqual(['getWorkItem'])
+    await oneShotAdapter.getWorkItem('work-item-id')
+
+    expect(fetchImplementation).toHaveBeenCalledTimes(1)
+    expect(fetchImplementation).toHaveBeenCalledWith(
+      expect.stringContaining('/work-items/work-item-id/'),
+      expect.objectContaining({method: 'GET'}),
+    )
+    expect(
+      fetchImplementation.mock.calls.some((call) =>
+        ['POST', 'PATCH'].includes(String(call[1]?.method)),
+      ),
+    ).toBe(false)
+  })
 })
 
 describe('Plane intake adapter', () => {

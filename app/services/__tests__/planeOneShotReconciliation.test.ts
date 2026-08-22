@@ -5,8 +5,8 @@ jest.mock('~/db/client', () => ({
   dbClient: {select, transaction},
 }))
 
-import {PlaneAdapterError} from '../planeAdapter'
-import type {PlaneAdapterConfig, PlaneWorkItem} from '../planeAdapter'
+import {createPlaneAdapter, PlaneAdapterError} from '../planeAdapter'
+import type {PlaneAdapter, PlaneAdapterConfig, PlaneWorkItem} from '../planeAdapter'
 import type {PlaneDefectIntent} from '@schema/resultRevisions'
 import {
   arePlaneOneShotWorkerRolesDisabled,
@@ -14,6 +14,8 @@ import {
   isPlaneOneShotDeadlock,
   PLANE_CANARY_ONE_SHOT_FLAG,
   PLANE_ONE_SHOT_MAX_DEADLOCK_ATTEMPTS,
+  PLANE_ONE_SHOT_FINALIZATION_FAILURE_MARKER,
+  PLANE_ONE_SHOT_PROVIDER_CALL_STARTED_MARKER,
   reconcilePlaneDefectOneShot,
   withPlaneOneShotDeadlockRetry,
   PlaneOneShotReconciliationInput,
@@ -305,7 +307,7 @@ const run = async ({
   finalize,
   manualAttention,
 }: {
-  adapter?: ReturnType<typeof createAdapter>
+  adapter?: Pick<PlaneAdapter, 'getWorkItem'>
   load?: Parameters<typeof createTransaction>[0]
   finalize?: ReturnType<typeof createTransaction>
   manualAttention?: ReturnType<typeof createManualAttentionTransaction>
@@ -355,6 +357,229 @@ describe('Plane one-shot reconciliation', () => {
       }),
     ).resolves.toMatchObject({outcome: 'refused'})
     expect(transaction).not.toHaveBeenCalled()
+  })
+
+  it('verify-only performs read-only preflight and exactly one provider GET', async () => {
+    const fetchImplementation = jest.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        Response.json({
+          id: input.expectedWorkItemId,
+          state: {id: 'state-open'},
+          workspace_id: config.workspaceId,
+          project_id: config.projectId,
+          project_identifier: config.projectIdentifier,
+          intake_id: input.expectedIntakeId,
+          name: intent.title,
+          description: intent.description,
+        }),
+    )
+    const {getWorkItem} = createPlaneAdapter(
+      {PLANE_DESTINATION: 'biz-development', PLANE_API_KEY: config.apiKey},
+      fetchImplementation,
+    )
+    const adapter: Pick<PlaneAdapter, 'getWorkItem'> = {getWorkItem}
+    select
+      .mockReturnValueOnce(createSelectQuery([]))
+      .mockReturnValueOnce(createSelectQuery([baseMap()]))
+      .mockReturnValueOnce(
+        createSelectQuery([{defectCycleId: intent.defectCycleId}]),
+      )
+      .mockReturnValueOnce(createSelectQuery([{resultOutboxId: 51}]))
+    const verifyTransaction = createTransaction()
+    transaction.mockImplementationOnce(async (callback) =>
+      callback(verifyTransaction),
+    )
+
+    await expect(
+      reconcilePlaneDefectOneShot({
+        input,
+        config,
+        planeAdapter: adapter,
+        enabled: true,
+        verifyOnly: true,
+        now: new Date('2026-08-22T00:01:00.000Z'),
+      }),
+    ).resolves.toMatchObject({
+      outcome: 'verified',
+      testRunMapId: 21,
+      defectCycleId: 31,
+      resultOutboxId: 51,
+      cycleState: 'manual_attention',
+      outboxDeliveryState: 'manual_attention',
+      providerStateId: 'state-open',
+    })
+    expect(fetchImplementation).toHaveBeenCalledTimes(1)
+    expect(
+      fetchImplementation.mock.calls.some((call) =>
+        ['POST', 'PATCH'].includes(String(call[1]?.method)),
+      ),
+    ).toBe(false)
+    expect(transaction).toHaveBeenCalledTimes(1)
+    expect(verifyTransaction.update).not.toHaveBeenCalled()
+    for (const entry of verifyTransaction.select.mock.results) {
+      expect(entry.value.for).not.toHaveBeenCalled()
+    }
+  })
+
+  it('execute path with the projected adapter performs one GET and no provider writes', async () => {
+    const fetchImplementation = jest.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        Response.json({
+          id: input.expectedWorkItemId,
+          state: {id: 'state-open'},
+          workspace_id: config.workspaceId,
+          project_id: config.projectId,
+          project_identifier: config.projectIdentifier,
+          intake_id: input.expectedIntakeId,
+          name: intent.title,
+          description: intent.description,
+        }),
+    )
+    const fullAdapter = createPlaneAdapter(
+      {
+        PLANE_DESTINATION: 'biz-development',
+        PLANE_API_KEY: config.apiKey,
+      },
+      fetchImplementation,
+    )
+    const {getWorkItem} = fullAdapter
+    const adapter: Pick<PlaneAdapter, 'getWorkItem'> = {getWorkItem}
+    const finalize = createFinalizeTransaction()
+    const result = await run({adapter, finalize})
+
+    expect(result).toMatchObject({outcome: 'reconciled'})
+    expect(fetchImplementation).toHaveBeenCalledTimes(1)
+    expect(fetchImplementation).toHaveBeenCalledWith(
+      expect.stringContaining('/work-items/work-item-41/'),
+      expect.objectContaining({method: 'GET'}),
+    )
+    expect(
+      fetchImplementation.mock.calls.some((call) =>
+        ['POST', 'PATCH'].includes(String(call[1]?.method)),
+      ),
+    ).toBe(false)
+  })
+
+  it('fences a later invocation after provider GET and permanent finalization failure', async () => {
+    const firstAdapter = createAdapter()
+    transaction.mockReset()
+    setupResolution()
+    transaction.mockImplementationOnce(async (callback) => {
+      lastClaimTransaction = createTransaction()
+      return callback(lastClaimTransaction)
+    })
+    transaction.mockImplementationOnce(async () => {
+      throw new Error('permanent finalization failure: secret=secret-api-key')
+    })
+    const manual = createManualAttentionTransaction()
+    transaction.mockImplementationOnce(async (callback) => callback(manual))
+
+    await expect(
+      reconcilePlaneDefectOneShot({
+        input,
+        config,
+        planeAdapter: firstAdapter,
+        enabled: true,
+        now: new Date('2026-08-22T00:01:00.000Z'),
+      }),
+    ).resolves.toMatchObject({outcome: 'manual_attention'})
+    expect(firstAdapter.getWorkItem).toHaveBeenCalledTimes(1)
+    const persistedError = manual.update.mock.results
+      .map((entry) => {
+        const query = entry.value as ReturnType<typeof createUpdateQuery>
+        return query.set.mock.calls[0]?.[0] as Record<string, unknown> | undefined
+      })
+      .find((values) => values?.deliveryState === 'manual_attention')?.lastError
+    expect(String(persistedError)).toContain(
+      PLANE_ONE_SHOT_FINALIZATION_FAILURE_MARKER,
+    )
+    expect(String(persistedError)).not.toContain('secret-api-key')
+
+    const secondAdapter = createAdapter()
+    select.mockReset()
+    setupResolution({outboxRows: [baseOutbox({lastError: persistedError})]})
+    transaction.mockReset()
+    transaction.mockImplementationOnce(async (callback) =>
+      callback(createTransaction({outboxRows: [baseOutbox({lastError: persistedError})]})),
+    )
+    await expect(
+      reconcilePlaneDefectOneShot({
+        input,
+        config,
+        planeAdapter: secondAdapter,
+        enabled: true,
+        now: new Date('2026-08-22T00:02:00.000Z'),
+      }),
+    ).resolves.toMatchObject({
+      outcome: 'refused',
+      reason: expect.stringContaining('explicit operator reconciliation'),
+    })
+    expect(secondAdapter.getWorkItem).not.toHaveBeenCalled()
+  })
+
+  it('keeps the pre-GET provider fence when finalization and manual attention both fail', async () => {
+    const firstAdapter = createAdapter()
+    transaction.mockReset()
+    setupResolution()
+    transaction.mockImplementationOnce(async (callback) => {
+      lastClaimTransaction = createTransaction()
+      return callback(lastClaimTransaction)
+    })
+    transaction.mockImplementationOnce(async () => {
+      throw new Error('permanent finalization failure')
+    })
+    transaction.mockImplementationOnce(async () => {
+      throw new Error('manual attention write failed')
+    })
+
+    await expect(
+      reconcilePlaneDefectOneShot({
+        input,
+        config,
+        planeAdapter: firstAdapter,
+        enabled: true,
+        now: new Date('2026-08-22T00:01:00.000Z'),
+      }),
+    ).rejects.toThrow('could not record manual attention')
+    expect(firstAdapter.getWorkItem).toHaveBeenCalledTimes(1)
+    const claimError = lastClaimTransaction?.update.mock.results
+      .map((entry) => {
+        const query = entry.value as ReturnType<typeof createUpdateQuery>
+        return query.set.mock.calls[0]?.[0] as Record<string, unknown> | undefined
+      })
+      .find((values) => values?.deliveryState === 'leased')?.lastError
+    expect(claimError).toBe(PLANE_ONE_SHOT_PROVIDER_CALL_STARTED_MARKER)
+
+    const secondAdapter = createAdapter()
+    select.mockReset()
+    setupResolution({
+      outboxRows: [
+        baseOutbox({lastError: PLANE_ONE_SHOT_PROVIDER_CALL_STARTED_MARKER}),
+      ],
+    })
+    transaction.mockReset()
+    transaction.mockImplementationOnce(async (callback) =>
+      callback(
+        createTransaction({
+          outboxRows: [
+            baseOutbox({lastError: PLANE_ONE_SHOT_PROVIDER_CALL_STARTED_MARKER}),
+          ],
+        }),
+      ),
+    )
+    await expect(
+      reconcilePlaneDefectOneShot({
+        input,
+        config,
+        planeAdapter: secondAdapter,
+        enabled: true,
+        now: new Date('2026-08-22T00:02:00.000Z'),
+      }),
+    ).resolves.toMatchObject({
+      outcome: 'refused',
+      reason: expect.stringContaining('explicit operator reconciliation'),
+    })
+    expect(secondAdapter.getWorkItem).not.toHaveBeenCalled()
   })
 
   it('refuses while any global delivery or readiness worker role is enabled', async () => {
@@ -547,6 +772,14 @@ describe('Plane one-shot reconciliation', () => {
       expect(entry.value.for).toHaveBeenCalledWith('update')
     }
     expect(reservationUpdate.set.mock.invocationCallOrder[0]).toBeLessThan(
+      adapter.getWorkItem.mock.invocationCallOrder[0],
+    )
+    expect(claimUpdate.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lastError: PLANE_ONE_SHOT_PROVIDER_CALL_STARTED_MARKER,
+      }),
+    )
+    expect(claimUpdate.set.mock.invocationCallOrder[0]).toBeLessThan(
       adapter.getWorkItem.mock.invocationCallOrder[0],
     )
   })
@@ -800,6 +1033,109 @@ describe('Plane one-shot reconciliation', () => {
       expect(lastClaimTransaction?.update).not.toHaveBeenCalled()
     },
   )
+
+  it.each([
+    {
+      label: 'map run identity',
+      map: {...baseMap(), runId: input.runId + 100},
+      revision: baseRevision(),
+    },
+    {
+      label: 'revision map identity',
+      map: baseMap(),
+      revision: {...baseRevision(), testRunMapId: 999},
+    },
+  ])(
+    'verify-only refuses a historical replay with the wrong $label before provider GET',
+    async ({map, revision}) => {
+      const adapter = createAdapter()
+      const historicalCycle = {
+        ...baseCycle(),
+        state: 'validated' as const,
+        activeMarker: null,
+        providerWorkItemId: input.expectedWorkItemId,
+        providerIntakeId: input.expectedIntakeId,
+        providerStateId: 'state-open',
+      }
+      const historicalOutbox = baseOutbox({
+        deliveryState: 'delivered',
+        deliveredOn: new Date('2026-08-22T00:00:30.000Z'),
+      })
+      select
+        .mockReturnValueOnce(createSelectQuery([historicalCycle]))
+        .mockReturnValueOnce(createSelectQuery([historicalOutbox]))
+      const validationTransaction = {
+        select: jest
+          .fn()
+          .mockReturnValueOnce(createSelectQuery([map]))
+          .mockReturnValueOnce(createSelectQuery([revision])),
+        update: jest.fn(),
+      }
+      transaction.mockImplementationOnce(async (callback) =>
+        callback(validationTransaction),
+      )
+
+      await expect(
+        reconcilePlaneDefectOneShot({
+          input,
+          config,
+          planeAdapter: adapter,
+          enabled: true,
+          verifyOnly: true,
+          now: new Date('2026-08-22T00:01:00.000Z'),
+        }),
+      ).resolves.toMatchObject({
+        outcome: 'refused',
+        reason:
+          'Historical replay map or result revision did not match the exact target',
+      })
+      expect(adapter.getWorkItem).not.toHaveBeenCalled()
+      expect(validationTransaction.update).not.toHaveBeenCalled()
+      expect(transaction).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it('verify-only validates a complete historical replay identity without writes', async () => {
+    const adapter = createAdapter()
+    const historicalCycle = {
+      ...baseCycle(),
+      state: 'validated' as const,
+      activeMarker: null,
+      providerWorkItemId: input.expectedWorkItemId,
+      providerIntakeId: input.expectedIntakeId,
+      providerStateId: 'state-open',
+    }
+    const historicalOutbox = baseOutbox({
+      deliveryState: 'delivered',
+      deliveredOn: new Date('2026-08-22T00:00:30.000Z'),
+    })
+    select
+      .mockReturnValueOnce(createSelectQuery([historicalCycle]))
+      .mockReturnValueOnce(createSelectQuery([historicalOutbox]))
+    const validationTransaction = {
+      select: jest
+        .fn()
+        .mockReturnValueOnce(createSelectQuery([baseMap()]))
+        .mockReturnValueOnce(createSelectQuery([baseRevision()])),
+      update: jest.fn(),
+    }
+    transaction.mockImplementationOnce(async (callback) =>
+      callback(validationTransaction),
+    )
+
+    await expect(
+      reconcilePlaneDefectOneShot({
+        input,
+        config,
+        planeAdapter: adapter,
+        enabled: true,
+        verifyOnly: true,
+        now: new Date('2026-08-22T00:01:00.000Z'),
+      }),
+    ).resolves.toMatchObject({outcome: 'matched', testRunMapId: 21})
+    expect(adapter.getWorkItem).not.toHaveBeenCalled()
+    expect(validationTransaction.update).not.toHaveBeenCalled()
+  })
 
   it.each([
     {deliveredOn: null},

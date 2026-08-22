@@ -25,7 +25,7 @@ const operatorEnvironment = capturePlaneOneShotOperatorEnvironment(
 const USAGE = `Usage: yarn plane:reconcile-one-shot \\
   --project-id <id> --run-id <id> --test-id <id> \\
   --work-item-id <id> --intake-id <id> --correlation-key <key> \\
-  --destination biz-development`
+  --destination biz-development [--verify-only]`
 
 const ARGUMENTS = {
   '--project-id': 'projectId',
@@ -47,13 +47,24 @@ type ParsedValue = {
   expectedDestination?: string
 }
 
-const parseArguments = (argv: string[]): PlaneOneShotReconciliationInput => {
+type ParsedArguments = {
+  input: PlaneOneShotReconciliationInput
+  verifyOnly: boolean
+}
+
+const parseArguments = (argv: string[]): ParsedArguments => {
   const parsed: ParsedValue = {}
+  let verifyOnly = false
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]
     if (argument === '--help') {
       process.stdout.write(`${USAGE}\n`)
       process.exit(0)
+    }
+    if (argument === '--verify-only') {
+      if (verifyOnly) throw new Error(`Unknown or duplicate argument: ${argument}`)
+      verifyOnly = true
+      continue
     }
     const field = ARGUMENTS[argument as keyof typeof ARGUMENTS]
     if (!field || parsed[field] !== undefined) {
@@ -87,18 +98,21 @@ const parseArguments = (argv: string[]): PlaneOneShotReconciliationInput => {
     )
   }
   return {
-    projectId: toPositiveInteger('projectId'),
-    runId: toPositiveInteger('runId'),
-    testId: toPositiveInteger('testId'),
-    expectedWorkItemId: required('expectedWorkItemId'),
-    expectedIntakeId: required('expectedIntakeId'),
-    expectedCorrelationKey: required('expectedCorrelationKey'),
-    expectedDestination,
+    input: {
+      projectId: toPositiveInteger('projectId'),
+      runId: toPositiveInteger('runId'),
+      testId: toPositiveInteger('testId'),
+      expectedWorkItemId: required('expectedWorkItemId'),
+      expectedIntakeId: required('expectedIntakeId'),
+      expectedCorrelationKey: required('expectedCorrelationKey'),
+      expectedDestination,
+    },
+    verifyOnly,
   }
 }
 
 const main = async () => {
-  const input = parseArguments(process.argv.slice(2))
+  const {input, verifyOnly} = parseArguments(process.argv.slice(2))
   if (!operatorEnvironment.enabled) {
     process.stdout.write(
       `${JSON.stringify({
@@ -127,14 +141,42 @@ const main = async () => {
     return
   }
 
+  // The database client loads .env at module import time. Require the
+  // operator's original process environment to select production semantics so
+  // a shared .env cannot make a non-production invocation reach the DB.
+  if (originalProcessEnvironment.NODE_ENV !== 'production') {
+    process.stdout.write(
+      `${JSON.stringify({
+        outcome: 'refused',
+        projectId: input.projectId,
+        runId: input.runId,
+        testId: input.testId,
+        reason: 'NODE_ENV must be exactly production',
+      })}\n`,
+    )
+    process.exitCode = 1
+    return
+  }
+
   process.stderr.write(
     'WARNING: operator-only one-shot; do not run concurrently with delivery/readiness workers or manual retries.\n',
   )
 
+  // Keep a process-injected DB_URL authoritative even if a later module-level
+  // dotenv load is configured to override values. A .env DB_URL remains usable
+  // only when the operator did not inject one.
+  if (originalProcessEnvironment.DB_URL !== undefined) {
+    process.env.DB_URL = originalProcessEnvironment.DB_URL
+  }
+  process.env.NODE_ENV = 'production'
+
   // The API key is read only inside this process and is never included in the
   // result or error output. The one-shot path performs a single bounded GET.
   const config = readPlaneAdapterConfig(operatorEnvironment.configEnvironment)
-  const planeAdapter = createPlaneAdapter(operatorEnvironment.configEnvironment)
+  const {getWorkItem} = createPlaneAdapter(
+    operatorEnvironment.configEnvironment,
+  )
+  const planeAdapter = {getWorkItem}
   const {client} = await import('../app/db/client')
   try {
     const {reconcilePlaneDefectOneShot} = await import(
@@ -146,6 +188,7 @@ const main = async () => {
       planeAdapter,
       enabled: operatorEnvironment.enabled,
       environment: operatorEnvironment.environment,
+      verifyOnly,
     })
     process.stdout.write(`${JSON.stringify(result)}\n`)
     if (result.outcome === 'manual_attention' || result.outcome === 'refused') {

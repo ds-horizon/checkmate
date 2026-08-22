@@ -8,6 +8,9 @@ working directory's `.env`; process environment values take precedence and the
 key is never printed. The canary flag is process-only, while an exactly `true`
 delivery/readiness worker flag in either the original process environment or
 loaded `.env` refuses the run.
+The operator must set `NODE_ENV=production` in the original process
+environment; a `.env` value cannot satisfy this gate. If `DB_URL` is injected
+in the process, it remains authoritative over `.env` for the database client.
 
 The command requires exact `projectId`, `runId`, `testId`, work-item ID, Intake
 ID, correlation key, and `biz-development` destination. It locks and validates
@@ -76,3 +79,35 @@ bounded map-before-cycle retry while the peer commits, verifies normal
 map-before-cycle concurrency, and verifies claim-failure rollback. It refuses
 non-local hosts, requires MySQL 8, and has bounded cleanup/signal teardown.
 Without that variable it prints `SKIPPED` and makes no database connection.
+
+## Read-only verification
+
+Appending `--verify-only` runs the same exact input and destination checks but
+uses only read-only selects inside a transaction. It revalidates the unique
+map, project/test join, included Active run, lifecycle cycle, current
+revision, and create-outbox event/payload before making at most one
+authoritative `GET`. It never reserves a cycle, leases an outbox, or updates
+or inserts any row. The JSON result includes the exact row IDs and observed
+cycle/outbox/provider state. A complete delivered replay remains a local
+`matched` no-op and does not call Plane, but verify-only first revalidates the
+historical map's exact run/test/project identity and the revision's exact
+map/project/run/test identity.
+
+The entrypoint projects the adapter object passed to reconciliation to
+`getWorkItem` only. Create-intake, comment, attachment, and state-update
+methods are not reachable from the one-shot service, so both execute and
+verify-only paths have a zero-POST/PATCH contract.
+
+Before the provider GET, the claim transaction persists the exact outbox's
+durable marker `operator_reconciliation_required: provider call started` while
+holding its lease and the cycle reservation. Successful finalization clears
+the marker. If the GET/finalization path fails, manual-attention persistence
+adds a sanitized reason (and finalization failures use the more specific
+`operator_reconciliation_required: provider GET succeeded; finalization
+failed` marker); if even that write fails, the pre-GET marker remains committed.
+Later invocations refuse before another provider request until an operator
+explicitly reconciles and clears the marker; they do not retry the provider
+GET automatically. The disposable MySQL harness invokes the real production
+service against its temporary fixture for verify-only no-write/one-GET and
+finalization-failure/second-invocation-zero-GET checks in addition to its
+concurrency and rollback checks.

@@ -19,6 +19,7 @@ const CLI_ARGUMENTS = [
   'defect-cycle:1:plane-create',
   '--destination',
   'biz-development',
+  '--verify-only',
 ]
 
 const resolveModule = createRequire(resolve(process.cwd(), 'package.json'))
@@ -34,6 +35,7 @@ const OPERATOR_ENVIRONMENT_KEYS = [
   'PLANE_API_BASE_URL',
   'PLANE_MAX_REQUESTS_PER_MINUTE',
   'DB_URL',
+  'NODE_ENV',
 ]
 
 const runEntrypoint = ({
@@ -48,9 +50,10 @@ const runEntrypoint = ({
   try {
     const environment: NodeJS.ProcessEnv = {
       ...process.env,
-      NODE_ENV: 'test',
+      NODE_ENV: 'production',
     }
     for (const key of OPERATOR_ENVIRONMENT_KEYS) delete environment[key]
+    environment.NODE_ENV = 'production'
     Object.assign(environment, processEnvironment)
 
     const result = spawnSync(
@@ -213,5 +216,39 @@ describe('plane one-shot entrypoint environment boundary', () => {
     expect(result.error).toBeUndefined()
     expect(output).toContain('PLANE_CANARY_ONE_SHOT_ENABLED is disabled')
     expect(output).not.toContain('temporary-entrypoint-secret')
+  })
+
+  it('requires process NODE_ENV production even when .env says production', () => {
+    const result = runEntrypoint({
+      processEnvironment: {
+        NODE_ENV: 'test',
+        PLANE_CANARY_ONE_SHOT_ENABLED: 'true',
+      },
+      dotEnv: `${ordinaryPlaneConfig({timeout: '100'})}\nNODE_ENV=production`,
+    })
+    const output = `${result.stdout}\n${result.stderr}`
+
+    expect(result.status).toBe(1)
+    expect(result.error).toBeUndefined()
+    expect(output).toContain('NODE_ENV must be exactly production')
+    expect(output).not.toContain('temporary-entrypoint-secret')
+  })
+
+  it('keeps a process DB_URL authoritative over the shared .env DB_URL', () => {
+    const result = runEntrypoint({
+      processEnvironment: {
+        PLANE_CANARY_ONE_SHOT_ENABLED: 'true',
+        DB_URL: 'not a url',
+      },
+      dotEnv: `${ordinaryPlaneConfig({timeout: '100'})}\nDB_URL=mysql://dotenv:dotenv-pass@dotenv-db-url.invalid:3306/checkmate`,
+    })
+    const output = `${result.stdout}\n${result.stderr}`
+
+    expect(result.status).toBe(1)
+    expect(result.error).toBeUndefined()
+    expect(output).toContain('Invalid URL')
+    expect(output).not.toContain('dotenv-db-url.invalid')
+    expect(output).not.toContain('operator-pass')
+    expect(output).not.toContain('dotenv-pass')
   })
 })

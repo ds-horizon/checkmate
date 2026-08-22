@@ -3,14 +3,14 @@ import {
   readPlaneAdapterConfig,
   sanitizePlaneError,
 } from '../app/services/planeAdapter'
-import {
-  arePlaneOneShotWorkerRolesDisabled,
-  isPlaneOneShotReconciliationEnabled,
-  PLANE_CANARY_ONE_SHOT_DESTINATION,
-  reconcilePlaneDefectOneShot,
-} from '../app/services/planeOneShotReconciliation'
 import type {PlaneOneShotReconciliationInput} from '../app/services/planeOneShotReconciliation'
-import {client} from '../app/db/client'
+import {
+  capturePlaneOneShotOperatorEnvironment,
+  PLANE_CANARY_ONE_SHOT_DESTINATION,
+  PLANE_CANARY_ONE_SHOT_FLAG,
+} from './plane-one-shot-environment'
+
+const operatorEnvironment = capturePlaneOneShotOperatorEnvironment()
 
 const USAGE = `Usage: yarn plane:reconcile-one-shot \\
   --project-id <id> --run-id <id> --test-id <id> \\
@@ -89,20 +89,20 @@ const parseArguments = (argv: string[]): PlaneOneShotReconciliationInput => {
 
 const main = async () => {
   const input = parseArguments(process.argv.slice(2))
-  if (!isPlaneOneShotReconciliationEnabled()) {
+  if (!operatorEnvironment.enabled) {
     process.stdout.write(
       `${JSON.stringify({
         outcome: 'refused',
         projectId: input.projectId,
         runId: input.runId,
         testId: input.testId,
-        reason: 'PLANE_CANARY_ONE_SHOT_ENABLED is disabled',
+        reason: `${PLANE_CANARY_ONE_SHOT_FLAG} is disabled`,
       })}\n`,
     )
     process.exitCode = 1
     return
   }
-  if (!arePlaneOneShotWorkerRolesDisabled()) {
+  if (!operatorEnvironment.workerRolesDisabled) {
     process.stdout.write(
       `${JSON.stringify({
         outcome: 'refused',
@@ -125,24 +125,30 @@ const main = async () => {
   // result or error output. The one-shot path performs a single bounded GET.
   const config = readPlaneAdapterConfig()
   const planeAdapter = createPlaneAdapter()
-  const result = await reconcilePlaneDefectOneShot({
-    input,
-    config,
-    planeAdapter,
-  })
-  process.stdout.write(`${JSON.stringify(result)}\n`)
-  if (result.outcome === 'manual_attention' || result.outcome === 'refused') {
-    process.exitCode = 1
+  const {client} = await import('../app/db/client')
+  try {
+    const {reconcilePlaneDefectOneShot} = await import(
+      '../app/services/planeOneShotReconciliation'
+    )
+    const result = await reconcilePlaneDefectOneShot({
+      input,
+      config,
+      planeAdapter,
+      enabled: operatorEnvironment.enabled,
+      environment: operatorEnvironment.environment,
+    })
+    process.stdout.write(`${JSON.stringify(result)}\n`)
+    if (result.outcome === 'manual_attention' || result.outcome === 'refused') {
+      process.exitCode = 1
+    }
+  } finally {
+    await client.end()
   }
 }
 
-void main()
-  .catch((error: unknown) => {
-    process.stderr.write(
-      `Plane one-shot reconciliation failed: ${sanitizePlaneError(error)}\n`,
-    )
-    process.exitCode = 1
-  })
-  .finally(async () => {
-    await client.end()
-  })
+void main().catch((error: unknown) => {
+  process.stderr.write(
+    `Plane one-shot reconciliation failed: ${sanitizePlaneError(error)}\n`,
+  )
+  process.exitCode = 1
+})

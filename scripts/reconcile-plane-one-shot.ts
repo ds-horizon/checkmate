@@ -123,10 +123,10 @@ const main = async () => {
 
   // The API key is read only inside this process and is never included in the
   // result or error output. The one-shot path performs a single bounded GET.
-  const config = readPlaneAdapterConfig()
-  const planeAdapter = createPlaneAdapter()
   const {client} = await import('../app/db/client')
   try {
+    const config = readPlaneAdapterConfig()
+    const planeAdapter = createPlaneAdapter()
     const {reconcilePlaneDefectOneShot} = await import(
       '../app/services/planeOneShotReconciliation'
     )

@@ -141,6 +141,12 @@ export type PlaneWorkItem = {
   stateId: string
   versionMarker: string | null
   raw: Record<string, unknown>
+  source?: 'work_item' | 'intake'
+}
+
+export type PlaneIntakeWorkItemRequest = {
+  workItemId: string
+  intakeId: string
 }
 
 export type PlaneWorkItemStateRequest = {
@@ -257,6 +263,9 @@ const stringValue = (value: unknown) =>
 const numberValue = (value: unknown) =>
   typeof value === 'number' && Number.isInteger(value) ? value : null
 
+const objectOrStringId = (value: unknown) =>
+  stringValue(value) ?? (isRecord(value) ? stringValue(value.id) : null)
+
 export const sanitizePlaneError = (value: unknown) => {
   const text = value instanceof Error ? value.message : String(value)
   return text
@@ -372,6 +381,81 @@ const parseWorkItem = (
   return {workItemId, stateId, versionMarker: version, raw: value}
 }
 
+const parseIntakeWorkItem = (
+  config: PlaneAdapterConfig,
+  request: PlaneIntakeWorkItemRequest,
+  value: unknown,
+): PlaneWorkItem => {
+  if (!isRecord(value) || !isRecord(value.issue_detail)) {
+    throw new PlaneAdapterError(
+      'Plane intake response did not include the exact backing issue envelope',
+      'manual_attention',
+    )
+  }
+
+  const issueDetail = value.issue_detail
+  const wrapperIntakeId = stringValue(value.id)
+  const wrapperWorkItemId = stringValue(value.issue)
+  const detailWorkItemId = stringValue(issueDetail.id)
+  if (
+    wrapperIntakeId !== request.intakeId ||
+    wrapperWorkItemId !== request.workItemId ||
+    detailWorkItemId !== request.workItemId
+  ) {
+    throw new PlaneAdapterError(
+      'Plane intake response did not match the exact wrapper and backing issue',
+      'manual_attention',
+    )
+  }
+
+  const wrapperWorkspaceId = objectOrStringId(value.workspace)
+  const detailWorkspaceId = objectOrStringId(issueDetail.workspace)
+  const wrapperProjectId = objectOrStringId(value.project)
+  const detailProjectId = objectOrStringId(issueDetail.project)
+  if (
+    wrapperWorkspaceId !== config.workspaceId ||
+    detailWorkspaceId !== wrapperWorkspaceId ||
+    wrapperProjectId !== config.projectId ||
+    detailProjectId !== wrapperProjectId
+  ) {
+    throw new PlaneAdapterError(
+      'Plane intake response did not match the exact pinned destination',
+      'manual_attention',
+    )
+  }
+
+  const state = issueDetail.state
+  const stateId = objectOrStringId(state)
+  if (!stateId) {
+    throw new PlaneAdapterError(
+      'Plane intake response did not include an authoritative state',
+      'manual_attention',
+    )
+  }
+
+  // Keep the provider's Intake shape and do not invent a project identifier;
+  // destination identity is proven by the scoped wrapper/inner UUIDs above.
+  const raw = {
+    ...value,
+    state,
+    workspace_id: wrapperWorkspaceId,
+    project_id: wrapperProjectId,
+    intake_id: wrapperIntakeId,
+    name: issueDetail.name,
+    description: issueDetail.description,
+    sequence_id: issueDetail.sequence_id,
+  }
+  const version =
+    stringValue(issueDetail.updated_at) ?? stringValue(value.updated_at)
+  return {
+    workItemId: detailWorkItemId,
+    stateId,
+    versionMarker: version,
+    raw,
+    source: 'intake',
+  }
+}
+
 export type PlaneAdapter = {
   createIntake(
     request: PlaneIntakeCreateRequest,
@@ -388,11 +472,17 @@ export type PlaneAdapter = {
   ): Promise<PlaneWorkItem>
 }
 
+export type PlaneOneShotAdapter = Pick<PlaneAdapter, 'getWorkItem'> & {
+  getIntakeWorkItem(
+    request: PlaneIntakeWorkItemRequest,
+  ): Promise<PlaneWorkItem>
+}
+
 export const createPlaneAdapter = (
   environment: Readonly<Record<string, string | undefined>> = process.env,
   fetchImplementation: Fetch = fetch,
   requestLimiter?: PlaneRequestLimiter,
-): PlaneAdapter => {
+): PlaneAdapter & PlaneOneShotAdapter => {
   const config = readPlaneAdapterConfig(environment)
   const limiter =
     requestLimiter ??
@@ -410,6 +500,17 @@ export const createPlaneAdapter = (
       'work-items',
       encodeURIComponent(workItemId),
       ...(resource ? [resource] : []),
+    ].join('/')
+  const intakePath = (workItemId: string) =>
+    [
+      'api',
+      'v1',
+      'workspaces',
+      encodeURIComponent(config.workspaceSlug),
+      'projects',
+      encodeURIComponent(config.projectId),
+      'intake-issues',
+      encodeURIComponent(workItemId),
     ].join('/')
 
   const planeFetch = async (
@@ -770,6 +871,17 @@ export const createPlaneAdapter = (
     return parseWorkItem(workItemId, body)
   }
 
+  const getIntakeWorkItem = async (
+    request: PlaneIntakeWorkItemRequest,
+  ) => {
+    const body = await planeFetch(
+      intakePath(request.workItemId),
+      {method: 'GET'},
+      false,
+    )
+    return parseIntakeWorkItem(config, request, body)
+  }
+
   const ensureWorkItemState = async (request: PlaneWorkItemStateRequest) => {
     const current = await getWorkItem(request.workItemId)
     if (current.stateId === request.stateId) return current
@@ -812,6 +924,7 @@ export const createPlaneAdapter = (
   return {
     createIntake,
     getWorkItem,
+    getIntakeWorkItem,
     ensureComment,
     ensureAttachment,
     ensureWorkItemState,

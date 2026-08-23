@@ -10,8 +10,8 @@ import {runs, testRunMap} from '@schema/runs'
 import {tests} from '@schema/tests'
 import {dbClient} from '~/db/client'
 import {
-  PlaneAdapter,
   PlaneAdapterConfig,
+  PlaneOneShotAdapter,
   PlaneWorkItem,
   sanitizePlaneError,
 } from './planeAdapter'
@@ -404,7 +404,8 @@ const validateProviderObservation = ({
   if (
     observed.workspaceId !== config.workspaceId ||
     observed.projectId !== config.projectId ||
-    observed.projectIdentifier !== config.projectIdentifier
+    (workItem.source !== 'intake' &&
+      observed.projectIdentifier !== config.projectIdentifier)
   ) {
     throw new Error(
       'Plane work item was not observed in the exact BIZ destination',
@@ -2283,7 +2284,7 @@ const verifyOnlyPreflight = async ({
 }: {
   input: PlaneOneShotReconciliationInput
   config: PlaneAdapterConfig
-  planeAdapter: Pick<PlaneAdapter, 'getWorkItem'>
+  planeAdapter: PlaneOneShotAdapter
   database: OneShotDatabase
   now: Date
 }): Promise<PlaneOneShotReconciliationResult> => {
@@ -2298,7 +2299,10 @@ const verifyOnlyPreflight = async ({
         database,
       })
       if ('outcome' in legacy) return legacy
-      const workItem = await planeAdapter.getWorkItem(input.expectedWorkItemId)
+      const workItem = await planeAdapter.getIntakeWorkItem({
+        workItemId: input.expectedWorkItemId,
+        intakeId: input.expectedIntakeId,
+      })
       const observed = validateProviderObservation({
         workItem,
         input,
@@ -2513,7 +2517,10 @@ const verifyOnlyPreflight = async ({
     return {map, cycle, revision, outbox, intent} as const
   })
   if ('outcome' in preflight) return preflight
-  const workItem = await planeAdapter.getWorkItem(input.expectedWorkItemId)
+  const workItem = await planeAdapter.getIntakeWorkItem({
+    workItemId: input.expectedWorkItemId,
+    intakeId: input.expectedIntakeId,
+  })
   const observed = validateProviderObservation({
     workItem,
     input,
@@ -2554,7 +2561,7 @@ export const reconcilePlaneDefectOneShot = async ({
 }: {
   input: PlaneOneShotReconciliationInput
   config: PlaneAdapterConfig
-  planeAdapter: Pick<PlaneAdapter, 'getWorkItem'>
+  planeAdapter: PlaneOneShotAdapter
   database?: OneShotDatabase
   now?: Date
   leaseMs?: number

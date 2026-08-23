@@ -6,7 +6,11 @@ jest.mock('~/db/client', () => ({
 }))
 
 import {createPlaneAdapter, PlaneAdapterError} from '../planeAdapter'
-import type {PlaneAdapter, PlaneAdapterConfig, PlaneWorkItem} from '../planeAdapter'
+import type {
+  PlaneAdapterConfig,
+  PlaneOneShotAdapter,
+  PlaneWorkItem,
+} from '../planeAdapter'
 import type {PlaneDefectIntent} from '@schema/resultRevisions'
 import {
   arePlaneOneShotWorkerRolesDisabled,
@@ -302,6 +306,7 @@ const createLegacyValidationTransaction = (
 
 const createAdapter = (item: PlaneWorkItem = workItem()) => ({
   getWorkItem: jest.fn(async () => item),
+  getIntakeWorkItem: jest.fn(async () => ({...item, source: 'intake' as const})),
   createIntake: jest.fn(),
 })
 
@@ -338,7 +343,7 @@ const run = async ({
   finalize,
   manualAttention,
 }: {
-  adapter?: Pick<PlaneAdapter, 'getWorkItem'>
+  adapter?: PlaneOneShotAdapter
   load?: Parameters<typeof createTransaction>[0]
   finalize?: ReturnType<typeof createTransaction>
   manualAttention?: ReturnType<typeof createManualAttentionTransaction>
@@ -394,21 +399,25 @@ describe('Plane one-shot reconciliation', () => {
     const fetchImplementation = jest.fn(
       async (_input: RequestInfo | URL, _init?: RequestInit) =>
         Response.json({
-          id: input.expectedWorkItemId,
-          state: {id: 'state-open'},
-          workspace_id: config.workspaceId,
-          project_id: config.projectId,
-          project_identifier: config.projectIdentifier,
-          intake_id: input.expectedIntakeId,
-          name: intent.title,
-          description: intent.description,
+          id: input.expectedIntakeId,
+          issue: input.expectedWorkItemId,
+          issue_detail: {
+            id: input.expectedWorkItemId,
+            state: {id: 'state-open'},
+            workspace: config.workspaceId,
+            project: config.projectId,
+            name: intent.title,
+            description: intent.description,
+          },
+          workspace: config.workspaceId,
+          project: config.projectId,
         }),
     )
-    const {getWorkItem} = createPlaneAdapter(
+    const {getWorkItem, getIntakeWorkItem} = createPlaneAdapter(
       {PLANE_DESTINATION: 'biz-development', PLANE_API_KEY: config.apiKey},
       fetchImplementation,
     )
-    const adapter: Pick<PlaneAdapter, 'getWorkItem'> = {getWorkItem}
+    const adapter: PlaneOneShotAdapter = {getWorkItem, getIntakeWorkItem}
     select
       .mockReturnValueOnce(createSelectQuery([]))
       .mockReturnValueOnce(createSelectQuery([baseMap()]))
@@ -440,6 +449,10 @@ describe('Plane one-shot reconciliation', () => {
       providerStateId: 'state-open',
     })
     expect(fetchImplementation).toHaveBeenCalledTimes(1)
+    expect(fetchImplementation).toHaveBeenCalledWith(
+      expect.stringContaining('/intake-issues/work-item-41/'),
+      expect.objectContaining({method: 'GET'}),
+    )
     expect(
       fetchImplementation.mock.calls.some((call) =>
         ['POST', 'PATCH'].includes(String(call[1]?.method)),
@@ -474,7 +487,8 @@ describe('Plane one-shot reconciliation', () => {
       fetchImplementation,
     )
     const {getWorkItem} = fullAdapter
-    const adapter: Pick<PlaneAdapter, 'getWorkItem'> = {getWorkItem}
+    const getIntakeWorkItem = jest.fn(fullAdapter.getIntakeWorkItem)
+    const adapter: PlaneOneShotAdapter = {getWorkItem, getIntakeWorkItem}
     const finalize = createFinalizeTransaction()
     const result = await run({adapter, finalize})
 
@@ -489,6 +503,7 @@ describe('Plane one-shot reconciliation', () => {
         ['POST', 'PATCH'].includes(String(call[1]?.method)),
       ),
     ).toBe(false)
+    expect(getIntakeWorkItem).not.toHaveBeenCalled()
   })
 
   it('fences a later invocation after provider GET and permanent finalization failure', async () => {
@@ -546,6 +561,7 @@ describe('Plane one-shot reconciliation', () => {
       reason: expect.stringContaining('explicit operator reconciliation'),
     })
     expect(secondAdapter.getWorkItem).not.toHaveBeenCalled()
+    expect(secondAdapter.getIntakeWorkItem).not.toHaveBeenCalled()
   })
 
   it('keeps the pre-GET provider fence when finalization and manual attention both fail', async () => {
@@ -611,6 +627,7 @@ describe('Plane one-shot reconciliation', () => {
       reason: expect.stringContaining('explicit operator reconciliation'),
     })
     expect(secondAdapter.getWorkItem).not.toHaveBeenCalled()
+    expect(secondAdapter.getIntakeWorkItem).not.toHaveBeenCalled()
   })
 
   it('refuses while any global delivery or readiness worker role is enabled', async () => {
@@ -1026,7 +1043,8 @@ describe('Plane one-shot reconciliation', () => {
       outboxDeliveryState: 'delivered',
       providerStateId: 'state-open',
     })
-    expect(adapter.getWorkItem).toHaveBeenCalledTimes(1)
+    expect(adapter.getWorkItem).not.toHaveBeenCalled()
+    expect(adapter.getIntakeWorkItem).toHaveBeenCalledTimes(1)
     expect(validation.update).not.toHaveBeenCalled()
   })
 
@@ -1417,6 +1435,7 @@ describe('Plane one-shot reconciliation', () => {
       }),
     ).resolves.toMatchObject({outcome: 'matched', testRunMapId: 21})
     expect(adapter.getWorkItem).not.toHaveBeenCalled()
+    expect(adapter.getIntakeWorkItem).not.toHaveBeenCalled()
     expect(validationTransaction.update).not.toHaveBeenCalled()
   })
 

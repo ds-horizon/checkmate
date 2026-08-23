@@ -10,6 +10,8 @@ const environment = {
   PLANE_API_KEY: 'secret-api-key',
   PLANE_API_TIMEOUT_MS: '100',
 }
+const environmentWorkspaceId = 'e36dfd86-953a-4e33-a410-856208893bb9'
+const environmentProjectId = '67726ee5-7d0c-4656-8bc8-b2f8a959d5da'
 
 describe('Plane adapter configuration', () => {
   it('requires a credentialed allowlisted destination', () => {
@@ -124,10 +126,13 @@ describe('Plane adapter configuration', () => {
       }),
     )
     const fullAdapter = createPlaneAdapter(environment, fetchImplementation)
-    const {getWorkItem} = fullAdapter
-    const oneShotAdapter = {getWorkItem}
+    const {getWorkItem, getIntakeWorkItem} = fullAdapter
+    const oneShotAdapter = {getWorkItem, getIntakeWorkItem}
 
-    expect(Object.keys(oneShotAdapter)).toEqual(['getWorkItem'])
+    expect(Object.keys(oneShotAdapter)).toEqual([
+      'getWorkItem',
+      'getIntakeWorkItem',
+    ])
     await oneShotAdapter.getWorkItem('work-item-id')
 
     expect(fetchImplementation).toHaveBeenCalledTimes(1)
@@ -197,6 +202,104 @@ describe('Plane intake adapter', () => {
     await expect(adapter.getWorkItem('work-item-id')).rejects.toMatchObject<
       Partial<PlaneAdapterError>
     >({kind: 'manual_attention'})
+  })
+
+  it('fetches the exact backing work item through the Intake envelope without writes', async () => {
+    const fetchImplementation = jest.fn(async () =>
+      Response.json({
+        id: 'intake-id',
+        issue: 'work-item-id',
+        issue_detail: {
+          id: 'work-item-id',
+          state: {id: 'done-state-id'},
+          workspace: environmentWorkspaceId,
+          project: environmentProjectId,
+          name: 'Checkmate failed step',
+          description: 'Evidence',
+          updated_at: '2026-08-20T00:00:00.000Z',
+        },
+        workspace: environmentWorkspaceId,
+        project: environmentProjectId,
+      }),
+    )
+    const adapter = createPlaneAdapter(environment, fetchImplementation)
+
+    const result = await adapter.getIntakeWorkItem({
+      workItemId: 'work-item-id',
+      intakeId: 'intake-id',
+    })
+    expect(result).toEqual(
+      expect.objectContaining({
+        workItemId: 'work-item-id',
+        stateId: 'done-state-id',
+        source: 'intake',
+        raw: expect.objectContaining({
+          id: 'intake-id',
+          issue: 'work-item-id',
+          intake_id: 'intake-id',
+          project_id: environmentProjectId,
+          workspace_id: environmentWorkspaceId,
+        }),
+      }),
+    )
+    expect(result.raw).not.toHaveProperty('project_identifier')
+    expect(fetchImplementation).toHaveBeenCalledTimes(1)
+    expect(fetchImplementation).toHaveBeenCalledWith(
+      'https://plane-dev.geep-fence.ts.net/api/v1/workspaces/infinimind/projects/67726ee5-7d0c-4656-8bc8-b2f8a959d5da/intake-issues/work-item-id/',
+      expect.objectContaining({method: 'GET'}),
+    )
+    expect(
+      fetchImplementation.mock.calls.some((call) =>
+        ['POST', 'PATCH'].includes(
+          String((call as unknown as [unknown, RequestInit?])[1]?.method),
+        ),
+      ),
+    ).toBe(false)
+  })
+
+  it.each([
+    ['wrapper intake id', {id: 'wrong-intake-id'}],
+    ['wrapper backing id', {issue: 'wrong-work-item-id'}],
+    [
+      'inner backing id',
+      {issue_detail: {id: 'wrong-work-item-id'}},
+    ],
+    ['workspace destination', {workspace: 'wrong-workspace-id'}],
+    ['project destination', {project: 'wrong-project-id'}],
+    ['state', {issue_detail: {state: null}}],
+  ])('rejects an Intake response with a mismatched %s', async (_field, change) => {
+    const base = {
+      id: 'intake-id',
+      issue: 'work-item-id',
+      issue_detail: {
+        id: 'work-item-id',
+        state: {id: 'done-state-id'},
+        workspace: environmentWorkspaceId,
+        project: environmentProjectId,
+      },
+      workspace: environmentWorkspaceId,
+      project: environmentProjectId,
+    }
+    const changeRecord = change as Record<string, unknown>
+    const response = {
+      ...base,
+      ...change,
+      issue_detail: {
+        ...base.issue_detail,
+        ...(changeRecord.issue_detail ?? {}),
+      },
+    }
+    const adapter = createPlaneAdapter(
+      environment,
+      jest.fn(async () => Response.json(response)),
+    )
+
+    await expect(
+      adapter.getIntakeWorkItem({
+        workItemId: 'work-item-id',
+        intakeId: 'intake-id',
+      }),
+    ).rejects.toMatchObject({kind: 'manual_attention'})
   })
 
   it('moves a work item to the exact requested state and verifies the response', async () => {

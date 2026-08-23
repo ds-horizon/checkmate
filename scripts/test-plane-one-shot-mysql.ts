@@ -353,6 +353,39 @@ const createProductionAdapter = (providerCalls: {count: number}) => ({
       },
     }
   },
+  getIntakeWorkItem: async () => {
+    providerCalls.count += 1
+    return {
+      workItemId: productionInput.expectedWorkItemId,
+      stateId: 'state-open',
+      versionMarker: 'harness-version',
+      source: 'intake' as const,
+      raw: {
+        id: productionInput.expectedIntakeId,
+        issue: productionInput.expectedWorkItemId,
+        issue_detail: {
+          id: productionInput.expectedWorkItemId,
+          state: {id: 'state-open'},
+          workspace: productionConfig.workspaceId,
+          project: productionConfig.projectId,
+          name: 'Failed Checkmate test',
+          description:
+            'Run 8 / test 9\nCorrelation: checkmate:correlation-41',
+          sequence_id: 41,
+        },
+        workspace: productionConfig.workspaceId,
+        project: productionConfig.projectId,
+        state: {id: 'state-open'},
+        workspace_id: productionConfig.workspaceId,
+        project_id: productionConfig.projectId,
+        intake_id: productionInput.expectedIntakeId,
+        name: 'Failed Checkmate test',
+        description:
+          'Run 8 / test 9\nCorrelation: checkmate:correlation-41',
+        sequence_id: 41,
+      },
+    }
+  },
 })
 
 const assertProductionVerifyOnly = async (

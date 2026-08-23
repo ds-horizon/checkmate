@@ -118,6 +118,22 @@ const baseOutbox = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 })
 
+const legacyCycle = () => ({
+  ...baseCycle(),
+  state: 'intake_open',
+  providerWorkItemId: input.expectedWorkItemId,
+  providerIntakeId: input.expectedIntakeId,
+  providerStateId: null,
+})
+
+const legacyOutbox = (overrides: Record<string, unknown> = {}) =>
+  baseOutbox({
+    deliveryState: 'delivered',
+    deliveredOn: new Date('2026-08-22T00:00:30.000Z'),
+    lastError: null,
+    ...overrides,
+  })
+
 const workItem = (overrides: Partial<PlaneWorkItem> = {}): PlaneWorkItem => ({
   workItemId: input.expectedWorkItemId,
   stateId: 'state-open',
@@ -267,6 +283,21 @@ const createManualAttentionTransaction = (
   update: jest
     .fn()
     .mockImplementation(() => updates.shift() ?? createUpdateQuery()),
+})
+
+const createLegacyValidationTransaction = (
+  cycle: unknown[] = [legacyCycle()],
+  outbox: unknown[] = [legacyOutbox()],
+) => ({
+  select: jest
+    .fn()
+    .mockReturnValueOnce(createSelectQuery([baseMap()], () => [baseMap()], 'map'))
+    .mockReturnValueOnce(createSelectQuery(cycle, () => cycle, 'cycle'))
+    .mockReturnValueOnce(createSelectQuery(outbox, () => outbox, 'outbox'))
+    .mockReturnValueOnce(
+      createSelectQuery([baseRevision()], () => [baseRevision()], 'revision'),
+    ),
+  update: jest.fn(),
 })
 
 const createAdapter = (item: PlaneWorkItem = workItem()) => ({
@@ -969,6 +1000,258 @@ describe('Plane one-shot reconciliation', () => {
       leaseToken: expect.any(String),
       leaseExpiresOn: expect.any(Date),
     })
+  })
+
+  it('verify-only reports the exact legacy repair as read-only with one GET', async () => {
+    const adapter = createAdapter()
+    select
+      .mockReturnValueOnce(createSelectQuery([legacyCycle()]))
+      .mockReturnValueOnce(createSelectQuery([legacyOutbox()]))
+    const validation = createLegacyValidationTransaction()
+    transaction.mockImplementationOnce(async (callback) => callback(validation))
+
+    await expect(
+      reconcilePlaneDefectOneShot({
+        input,
+        config,
+        planeAdapter: adapter,
+        enabled: true,
+        verifyOnly: true,
+        now: new Date('2026-08-22T00:01:00.000Z'),
+      }),
+    ).resolves.toMatchObject({
+      outcome: 'verified',
+      repairRequired: true,
+      cycleState: 'intake_open',
+      outboxDeliveryState: 'delivered',
+      providerStateId: 'state-open',
+    })
+    expect(adapter.getWorkItem).toHaveBeenCalledTimes(1)
+    expect(validation.update).not.toHaveBeenCalled()
+  })
+
+  it('refuses a legacy repair identity mismatch before provider GET', async () => {
+    const adapter = createAdapter()
+    await expect(
+      run({
+        adapter,
+        load: {
+          replayCycleRows: [
+            {...legacyCycle(), providerIntakeId: 'other-intake'},
+          ],
+          replayOutboxRows: [legacyOutbox()],
+        },
+      }),
+    ).resolves.toMatchObject({
+      outcome: 'refused',
+      reason:
+        'Delivered historical Plane identity or tuple did not match the exact replay target',
+    })
+    expect(adapter.getWorkItem).not.toHaveBeenCalled()
+  })
+
+  it('fences and atomically repairs the exact legacy cycle without leasing the delivered outbox', async () => {
+    const adapter = createAdapter()
+    const cycleReservation = createUpdateQuery()
+    const providerFence = createUpdateQuery()
+    const cycleUpdate = createUpdateQuery()
+    const outboxUpdate = createUpdateQuery()
+    const repairedOutbox = legacyOutbox({
+      lastError: PLANE_ONE_SHOT_PROVIDER_CALL_STARTED_MARKER,
+    })
+    const result = await run({
+      adapter,
+      load: {
+        replayCycleRows: [legacyCycle()],
+        replayOutboxRows: [legacyOutbox()],
+        cycleRows: [legacyCycle()],
+        outboxRows: [legacyOutbox()],
+        updates: [cycleReservation, providerFence],
+      },
+      finalize: createFinalizeTransaction(
+        [{...legacyCycle(), state: 'manual_attention'}],
+        [cycleUpdate, outboxUpdate],
+        [repairedOutbox],
+      ),
+    })
+
+    expect(result).toMatchObject({
+      outcome: 'reconciled',
+      providerStateId: 'state-open',
+    })
+    expect(adapter.getWorkItem).toHaveBeenCalledTimes(1)
+    expect(cycleReservation.set).toHaveBeenCalledWith({
+      state: 'manual_attention',
+    })
+    expect(providerFence.set).toHaveBeenCalledWith({
+      lastError: PLANE_ONE_SHOT_PROVIDER_CALL_STARTED_MARKER,
+    })
+    expect(cycleUpdate.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        state: 'work_item_open',
+        providerStateId: 'state-open',
+      }),
+    )
+    expect(outboxUpdate.set).toHaveBeenCalledWith({lastError: null})
+  })
+
+  it('rolls back when the delivered outbox row is replaced under the same ID and event key', async () => {
+    const adapter = createAdapter()
+    const load = {
+      replayCycleRows: [legacyCycle()],
+      replayOutboxRows: [legacyOutbox()],
+      cycleRows: [legacyCycle()],
+      outboxRows: [legacyOutbox()],
+      updates: [createUpdateQuery(), createUpdateQuery()],
+    }
+    const mutatedOutbox = legacyOutbox({
+      resultRevisionId: 999,
+      lastError: PLANE_ONE_SHOT_PROVIDER_CALL_STARTED_MARKER,
+    })
+    const finalize = createFinalizeTransaction(
+      [{...legacyCycle(), state: 'manual_attention'}],
+      [createUpdateQuery(), createUpdateQuery()],
+      [mutatedOutbox],
+    )
+    let rolledBack = false
+    setupResolution(load)
+    transaction.mockImplementationOnce(async (callback) =>
+      callback(createTransaction(load)),
+    )
+    transaction.mockImplementationOnce(async (callback) => {
+      try {
+        return await callback(finalize)
+      } catch (error) {
+        rolledBack = true
+        throw error
+      }
+    })
+
+    await expect(
+      reconcilePlaneDefectOneShot({
+        input,
+        config,
+        planeAdapter: adapter,
+        enabled: true,
+        now: new Date('2026-08-22T00:01:00.000Z'),
+      }),
+    ).resolves.toMatchObject({outcome: 'manual_attention'})
+    expect(rolledBack).toBe(true)
+    expect(finalize.update).not.toHaveBeenCalled()
+    expect(adapter.getWorkItem).toHaveBeenCalledTimes(1)
+  })
+
+  it('rolls back the legacy cycle reservation when the durable provider fence is lost', async () => {
+    const adapter = createAdapter()
+    const cycleReservation = createUpdateQuery()
+    const providerFence = createUpdateQuery(0)
+    let committed = false
+    const load = {
+      replayCycleRows: [legacyCycle()],
+      replayOutboxRows: [legacyOutbox()],
+      cycleRows: [legacyCycle()],
+      outboxRows: [legacyOutbox()],
+      updates: [cycleReservation, providerFence],
+    }
+    setupResolution(load)
+    transaction.mockImplementationOnce(async (callback) => {
+      const trx = createTransaction(load)
+      try {
+        const result = await callback(trx)
+        committed = true
+        return result
+      } catch (error) {
+        throw error
+      }
+    })
+
+    await expect(
+      reconcilePlaneDefectOneShot({
+        input,
+        config,
+        planeAdapter: adapter,
+        enabled: true,
+        now: new Date('2026-08-22T00:01:00.000Z'),
+      }),
+    ).rejects.toThrow('Legacy Plane provider-call fence was lost')
+    expect(committed).toBe(false)
+    expect(cycleReservation.set).toHaveBeenCalledWith({
+      state: 'manual_attention',
+    })
+    expect(adapter.getWorkItem).not.toHaveBeenCalled()
+  })
+
+  it('fences a legacy provider GET failure and refuses replay without another request or write', async () => {
+    const adapter = createAdapter()
+    adapter.getWorkItem.mockRejectedValueOnce(new Error('Plane unavailable'))
+    const cycleReservation = createUpdateQuery()
+    const providerFence = createUpdateQuery()
+    const firstResult = await run({
+      adapter,
+      load: {
+        replayCycleRows: [legacyCycle()],
+        replayOutboxRows: [legacyOutbox()],
+        cycleRows: [legacyCycle()],
+        outboxRows: [legacyOutbox()],
+        updates: [cycleReservation, providerFence],
+      },
+    })
+
+    expect(firstResult).toMatchObject({
+      outcome: 'manual_attention',
+      reason: 'Plane unavailable',
+    })
+    expect(cycleReservation.set).toHaveBeenCalledWith({
+      state: 'manual_attention',
+    })
+    expect(providerFence.set).toHaveBeenCalledWith({
+      lastError: PLANE_ONE_SHOT_PROVIDER_CALL_STARTED_MARKER,
+    })
+    expect(adapter.getWorkItem).toHaveBeenCalledTimes(1)
+
+    const transactionCallsAfterFailure = transaction.mock.calls.length
+    const replayResult = await run({
+      adapter,
+      load: {
+        replayCycleRows: [{...legacyCycle(), state: 'manual_attention'}],
+        replayOutboxRows: [
+          legacyOutbox({
+            lastError: PLANE_ONE_SHOT_PROVIDER_CALL_STARTED_MARKER,
+          }),
+        ],
+      },
+    })
+
+    expect(replayResult).toMatchObject({
+      outcome: 'refused',
+      reason:
+        'A prior provider call started or database finalization failed; explicit operator reconciliation is required',
+    })
+    expect(adapter.getWorkItem).toHaveBeenCalledTimes(1)
+    expect(transaction).toHaveBeenCalledTimes(transactionCallsAfterFailure)
+  })
+
+  it('replays a repaired legacy cycle with zero GETs and zero writes', async () => {
+    const adapter = createAdapter()
+    const repairedCycle = {
+      ...legacyCycle(),
+      state: 'work_item_open',
+      providerStateId: 'state-open',
+    }
+    const result = await run({
+      adapter,
+      load: {
+        replayCycleRows: [repairedCycle],
+        replayOutboxRows: [legacyOutbox()],
+        cycleRows: [repairedCycle],
+        outboxRows: [legacyOutbox()],
+        updates: [],
+      },
+    })
+
+    expect(result).toMatchObject({outcome: 'matched'})
+    expect(adapter.getWorkItem).not.toHaveBeenCalled()
+    expect(lastClaimTransaction?.update).not.toHaveBeenCalled()
   })
 
   it('returns a linked replay as a no-op with no provider request', async () => {

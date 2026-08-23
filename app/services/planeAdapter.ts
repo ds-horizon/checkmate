@@ -378,7 +378,23 @@ const parseWorkItem = (
     )
   }
 
-  return {workItemId, stateId, versionMarker: version, raw: value}
+  const workspaceId = objectOrStringId(value.workspace)
+  const projectId = objectOrStringId(value.project)
+  // Preserve the provider response while exposing scalar/object destination
+  // fields through the same aliases used by the Intake envelope. Never infer
+  // a project identifier from a UUID; only a provider-supplied identifier is
+  // authoritative.
+  const raw = {
+    ...value,
+    ...(workspaceId && value.workspace_id === undefined
+      ? {workspace_id: workspaceId}
+      : {}),
+    ...(projectId && value.project_id === undefined
+      ? {project_id: projectId}
+      : {}),
+  }
+
+  return {workItemId, stateId, versionMarker: version, raw}
 }
 
 const parseIntakeWorkItem = (

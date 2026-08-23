@@ -10,6 +10,7 @@ import {
   PLANE_CANARY_ONE_SHOT_DESTINATION,
   PLANE_CANARY_ONE_SHOT_FLAG,
 } from './plane-one-shot-environment'
+import {PLANE_ONE_SHOT_BIZ41_RECOVERY_PAYLOAD_DIGEST} from '../app/services/planeOneShotReconciliation'
 
 const originalProcessEnvironment = {...process.env}
 const dotenvEnvironment: Record<string, string> = {}
@@ -25,7 +26,8 @@ const operatorEnvironment = capturePlaneOneShotOperatorEnvironment(
 const USAGE = `Usage: yarn plane:reconcile-one-shot \\
   --project-id <id> --run-id <id> --test-id <id> \\
   --work-item-id <id> --intake-id <id> --correlation-key <key> \\
-  --destination biz-development [--verify-only]`
+  --destination biz-development [--verify-only] \\
+  [--recover-biz41-provider-observation-mismatch]`
 
 const ARGUMENTS = {
   '--project-id': 'projectId',
@@ -55,6 +57,7 @@ type ParsedArguments = {
 const parseArguments = (argv: string[]): ParsedArguments => {
   const parsed: ParsedValue = {}
   let verifyOnly = false
+  let recoverBiz41ProviderObservationMismatch = false
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]
     if (argument === '--help') {
@@ -64,6 +67,13 @@ const parseArguments = (argv: string[]): ParsedArguments => {
     if (argument === '--verify-only') {
       if (verifyOnly) throw new Error(`Unknown or duplicate argument: ${argument}`)
       verifyOnly = true
+      continue
+    }
+    if (argument === '--recover-biz41-provider-observation-mismatch') {
+      if (recoverBiz41ProviderObservationMismatch) {
+        throw new Error(`Unknown or duplicate argument: ${argument}`)
+      }
+      recoverBiz41ProviderObservationMismatch = true
       continue
     }
     const field = ARGUMENTS[argument as keyof typeof ARGUMENTS]
@@ -97,6 +107,11 @@ const parseArguments = (argv: string[]): ParsedArguments => {
       `expectedDestination must be ${PLANE_CANARY_ONE_SHOT_DESTINATION}`,
     )
   }
+  if (verifyOnly && recoverBiz41ProviderObservationMismatch) {
+    throw new Error(
+      '--recover-biz41-provider-observation-mismatch cannot be combined with --verify-only',
+    )
+  }
   return {
     input: {
       projectId: toPositiveInteger('projectId'),
@@ -106,6 +121,12 @@ const parseArguments = (argv: string[]): ParsedArguments => {
       expectedIntakeId: required('expectedIntakeId'),
       expectedCorrelationKey: required('expectedCorrelationKey'),
       expectedDestination,
+      ...(recoverBiz41ProviderObservationMismatch
+        ? {
+            recoverBiz41ProviderObservationMismatch: true,
+            recoveryPayloadDigest: PLANE_ONE_SHOT_BIZ41_RECOVERY_PAYLOAD_DIGEST,
+          }
+        : {}),
     },
     verifyOnly,
   }

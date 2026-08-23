@@ -204,6 +204,32 @@ describe('Plane intake adapter', () => {
     >({kind: 'manual_attention'})
   })
 
+  it('normalizes scalar and object destination fields without inventing an identifier', async () => {
+    const adapter = createPlaneAdapter(
+      environment,
+      jest.fn(async () =>
+        Response.json({
+          id: 'work-item-id',
+          state: {id: 'done-state-id'},
+          workspace: {id: environmentWorkspaceId, name: 'Infinimind'},
+          project: environmentProjectId,
+        }),
+      ),
+    )
+
+    const result = await adapter.getWorkItem('work-item-id')
+
+    expect(result.raw).toEqual(
+      expect.objectContaining({
+        workspace: {id: environmentWorkspaceId, name: 'Infinimind'},
+        project: environmentProjectId,
+        workspace_id: environmentWorkspaceId,
+        project_id: environmentProjectId,
+      }),
+    )
+    expect(result.raw).not.toHaveProperty('project_identifier')
+  })
+
   it('fetches the exact backing work item through the Intake envelope without writes', async () => {
     const fetchImplementation = jest.fn(async () =>
       Response.json({

@@ -203,6 +203,69 @@ describe('Plane adapter configuration', () => {
       ),
     ).toBe(false)
   })
+
+  it('walks every duplicate-lookup page so a match beyond page one is returned', async () => {
+    const correlation = 'checkmate:pagination-correlation'
+    const fetchImplementation = jest
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          results: [{id: 'other-item', state: {id: 'open'}, correlation_key: 'other'}],
+          next: 'https://plane-dev.geep-fence.ts.net/api/v1/workspaces/infinimind/projects/67726ee5-7d0c-4656-8bc8-b2f8a959d5da/work-items/?cursor=page-2',
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          results: [{id: 'match-item', state: {id: 'open'}, correlation_key: correlation}],
+          has_next: false,
+        }),
+      )
+    const adapter = createPlaneAdapter(
+      environment,
+      fetchImplementation,
+      {wait: jest.fn().mockResolvedValue(undefined)},
+    )
+
+    await expect(adapter.findByCorrelation(correlation)).resolves.toEqual([
+      expect.objectContaining({workItemId: 'match-item'}),
+    ])
+    expect(fetchImplementation).toHaveBeenCalledTimes(2)
+  })
+
+  it('returns multiple exact matches across pages for the recovery cardinality fence', async () => {
+    const correlation = 'checkmate:two-matches'
+    const page = (id: string) => ({id, state: {id: 'open'}, correlation_key: correlation})
+    const fetchImplementation = jest
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({results: [page('first-match')], next_cursor: 'page-2'}),
+      )
+      .mockResolvedValueOnce(Response.json({results: [page('second-match')]}))
+    const adapter = createPlaneAdapter(
+      environment,
+      fetchImplementation,
+      {wait: jest.fn().mockResolvedValue(undefined)},
+    )
+
+    await expect(adapter.findByCorrelation(correlation)).resolves.toEqual([
+      expect.objectContaining({workItemId: 'first-match'}),
+      expect.objectContaining({workItemId: 'second-match'}),
+    ])
+  })
+
+  it('fails closed when a paginated collection contains an item without identity', async () => {
+    const adapter = createPlaneAdapter(
+      environment,
+      jest.fn(async () =>
+        Response.json({results: [{state: {id: 'open'}, correlation_key: 'other'}]}),
+      ),
+      {wait: jest.fn().mockResolvedValue(undefined)},
+    )
+
+    await expect(adapter.findByCorrelation('checkmate:none')).rejects.toMatchObject({
+      kind: 'manual_attention',
+    })
+  })
 })
 
 describe('Plane intake adapter', () => {
@@ -292,12 +355,13 @@ describe('Plane intake adapter', () => {
       Response.json({
         id: 'intake-id',
         issue: 'work-item-id',
-        issue_detail: {
-          id: 'work-item-id',
-          state: {id: 'done-state-id'},
-          workspace: environmentWorkspaceId,
-          project: environmentProjectId,
-          name: 'Checkmate failed step',
+          issue_detail: {
+            id: 'work-item-id',
+            state: {id: 'done-state-id'},
+            workspace: environmentWorkspaceId,
+            project: environmentProjectId,
+            project_identifier: 'BIZ',
+            name: 'Checkmate failed step',
           description: 'Evidence',
           updated_at: '2026-08-20T00:00:00.000Z',
         },
@@ -322,10 +386,10 @@ describe('Plane intake adapter', () => {
           intake_id: 'intake-id',
           project_id: environmentProjectId,
           workspace_id: environmentWorkspaceId,
+          project_identifier: 'BIZ',
         }),
       }),
     )
-    expect(result.raw).not.toHaveProperty('project_identifier')
     expect(fetchImplementation).toHaveBeenCalledTimes(1)
     expect(fetchImplementation).toHaveBeenCalledWith(
       'https://plane-dev.geep-fence.ts.net/api/v1/workspaces/infinimind/projects/67726ee5-7d0c-4656-8bc8-b2f8a959d5da/intake-issues/work-item-id/',
@@ -338,6 +402,36 @@ describe('Plane intake adapter', () => {
         ),
       ),
     ).toBe(false)
+  })
+
+  it('accepts a normal Intake response without a top-level project identifier', async () => {
+    const fetchImplementation = jest.fn(async () =>
+      Response.json({
+        id: 'intake-id',
+        issue: 'work-item-id',
+        issue_detail: {
+          id: 'work-item-id',
+          state: {id: 'done-state-id'},
+          workspace: environmentWorkspaceId,
+          project: environmentProjectId,
+          name: 'Legacy one-shot response',
+          description: 'No project identifier in this provider shape',
+          updated_at: '2026-08-20T00:00:00.000Z',
+        },
+        workspace: environmentWorkspaceId,
+        project: environmentProjectId,
+      }),
+    )
+    const adapter = createPlaneAdapter(environment, fetchImplementation)
+
+    const result = await adapter.getIntakeWorkItem({
+      workItemId: 'work-item-id',
+      intakeId: 'intake-id',
+    })
+
+    expect(result.workItemId).toBe('work-item-id')
+    expect(result.raw).not.toHaveProperty('project_identifier')
+    expect(fetchImplementation).toHaveBeenCalledTimes(1)
   })
 
   it.each([
@@ -359,9 +453,11 @@ describe('Plane intake adapter', () => {
         state: {id: 'done-state-id'},
         workspace: environmentWorkspaceId,
         project: environmentProjectId,
+        project_identifier: 'BIZ',
       },
       workspace: environmentWorkspaceId,
       project: environmentProjectId,
+      project_identifier: 'BIZ',
     }
     const changeRecord = change as Record<string, unknown>
     const response = {

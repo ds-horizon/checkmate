@@ -14,6 +14,9 @@ const MAX_ERROR_LENGTH = 500
 /** The maximum documented number of Plane API calls for one outbox event. */
 export const MAX_PLANE_API_REQUESTS_PER_DELIVERY = 6
 
+/** Bounded page walk for the one-off recovery duplicate fence. */
+export const PLANE_RECOVERY_MAX_DUPLICATE_PAGES = 100
+
 export type PlanePriority = 'urgent' | 'high' | 'medium' | 'low' | 'none'
 
 export type PlaneAdapterConfig = {
@@ -278,6 +281,10 @@ export const sanitizePlaneError = (value: unknown) => {
     )
     .replace(/\bBearer\s+[^"',;\s]+/gi, 'Bearer [redacted]')
     .replace(
+      /\bAuthorization\s*:\s*["']?[^"',;\s]+(?:\s+[^"',;\s]+)?["']?/gi,
+      'Authorization: [redacted]',
+    )
+    .replace(
       /\b(api[_-]?key|token|secret)\s*[:=]\s*["']?[^"',;\s]+["']?/gi,
       '$1=[redacted]',
     )
@@ -452,13 +459,20 @@ const parseIntakeWorkItem = (
     )
   }
 
-  // Keep the provider's Intake shape and do not invent a project identifier;
-  // destination identity is proven by the scoped wrapper/inner UUIDs above.
+  // Preserve the provider's Intake shape. Recovery-only code resolves and
+  // validates an optional provider-supplied project identifier from the raw
+  // top-level or nested envelope; normal delivery must not require it.
   const raw = {
     ...value,
     state,
     workspace_id: wrapperWorkspaceId,
     project_id: wrapperProjectId,
+    ...(stringValue(issueDetail.project_identifier) ?? stringValue(value.project_identifier)
+      ? {
+          project_identifier:
+            stringValue(issueDetail.project_identifier) ?? stringValue(value.project_identifier),
+        }
+      : {}),
     intake_id: wrapperIntakeId,
     name: issueDetail.name,
     description: issueDetail.description,
@@ -497,12 +511,27 @@ export type PlaneOneShotAdapter = Pick<PlaneAdapter, 'getWorkItem'> & {
   ): Promise<PlaneWorkItem>
 }
 
+export type PlaneAuthenticatedAccess = {
+  actorId: string
+  actorIdentity: string
+  workspaceId: string
+  projectId: string
+  projectIdentifier: string
+}
+
+/** Additional authenticated seams used only by the TVP-599 DFR recovery. */
+export type PlaneRecoveryAdapter = PlaneOneShotAdapter &
+  Pick<PlaneAdapter, 'createIntake' | 'ensureComment'> & {
+    checkAccess(): Promise<PlaneAuthenticatedAccess>
+    findByCorrelation(correlationKey: string): Promise<PlaneWorkItem[]>
+  }
+
 export const createPlaneAdapter = (
   environment: Readonly<Record<string, string | undefined>> = process.env,
   fetchImplementation: Fetch = fetch,
   requestLimiter?: PlaneRequestLimiter,
   destinationKey?: PlaneDestinationKey,
-): PlaneAdapter & PlaneOneShotAdapter => {
+): PlaneAdapter & PlaneRecoveryAdapter => {
   const config = readPlaneAdapterConfig(environment, destinationKey)
   const limiter =
     requestLimiter ??
@@ -533,6 +562,25 @@ export const createPlaneAdapter = (
       encodeURIComponent(workItemId),
     ].join('/')
 
+  const workItemsPath = [
+    'api',
+    'v1',
+    'workspaces',
+    encodeURIComponent(config.workspaceSlug),
+    'projects',
+    encodeURIComponent(config.projectId),
+    'work-items',
+  ].join('/')
+
+  const projectPath = [
+    'api',
+    'v1',
+    'workspaces',
+    encodeURIComponent(config.workspaceSlug),
+    'projects',
+    encodeURIComponent(config.projectId),
+  ].join('/')
+
   const planeFetch = async (
     path: string,
     init: RequestInit,
@@ -544,7 +592,10 @@ export const createPlaneAdapter = (
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), config.timeoutMs)
     try {
-      const response = await fetchImplementation(`${config.apiBaseUrl}/${path}/`, {
+      const [rawPath, rawQuery] = path.split('?', 2)
+      const normalizedPath = rawPath.replace(/^\/+|\/+$/g, '')
+      const querySuffix = rawQuery ? `?${rawQuery}` : ''
+      const response = await fetchImplementation(`${config.apiBaseUrl}/${normalizedPath}/${querySuffix}`, {
         ...init,
         headers: {
           Accept: 'application/json',
@@ -902,6 +953,172 @@ export const createPlaneAdapter = (
     return parseIntakeWorkItem(config, request, body)
   }
 
+  const readId = (value: unknown) =>
+    stringValue(value) ?? (isRecord(value) ? stringValue(value.id) : null)
+
+  const readCorrelation = (value: Record<string, unknown>) => {
+    const direct =
+      stringValue(value.correlation_key) ??
+      stringValue(value.correlationKey) ??
+      stringValue(value.create_correlation_key) ??
+      stringValue(value.createCorrelationKey)
+    if (direct) return direct
+    const description = stringValue(value.description)
+    return description?.match(/(?:^|\n)Correlation:\s*([^\n\r]+)/)?.[1] ?? null
+  }
+
+  const checkAccess = async (): Promise<PlaneAuthenticatedAccess> => {
+    const actorBody = await planeFetch(
+      'api/v1/users/me',
+      {method: 'GET'},
+      false,
+    )
+    const actorId = isRecord(actorBody)
+      ? readId(actorBody.id) ?? readId(actorBody.user)
+      : null
+    const actorIdentity = isRecord(actorBody)
+      ? stringValue(actorBody.username) ??
+        stringValue(actorBody.email) ??
+        stringValue(actorBody.display_name) ??
+        stringValue(actorBody.displayName) ??
+        (isRecord(actorBody.user)
+          ? stringValue(actorBody.user.username) ??
+            stringValue(actorBody.user.email) ??
+            stringValue(actorBody.user.display_name) ??
+            stringValue(actorBody.user.displayName)
+          : null)
+      : null
+    if (!actorId || !actorIdentity) {
+      throw new PlaneAdapterError(
+        'Plane authenticated actor response omitted the pinned identity',
+        'manual_attention',
+      )
+    }
+    const projectBody = await planeFetch(projectPath, {method: 'GET'}, false)
+    if (!isRecord(projectBody)) {
+      throw new PlaneAdapterError(
+        'Plane project access response was not an object',
+        'manual_attention',
+      )
+    }
+    const workspaceId =
+      readId(projectBody.workspace_id) ?? readId(projectBody.workspace)
+    const projectId = readId(projectBody.id)
+    const projectIdentifier =
+      stringValue(projectBody.identifier) ??
+      stringValue(projectBody.project_identifier)
+    if (!workspaceId || !projectId || !projectIdentifier) {
+      throw new PlaneAdapterError(
+        'Plane project access response omitted pinned route identity',
+        'manual_attention',
+      )
+    }
+    return {actorId, actorIdentity, workspaceId, projectId, projectIdentifier}
+  }
+
+  const normalizePagePath = (next: string) => {
+    let parsed: URL
+    try {
+      parsed = new URL(next, config.apiBaseUrl)
+    } catch {
+      throw new PlaneAdapterError('Plane pagination cursor was malformed', 'manual_attention')
+    }
+    if (parsed.origin !== config.apiBaseUrl) {
+      throw new PlaneAdapterError('Plane pagination cursor changed origin', 'manual_attention')
+    }
+    const expectedPath = `/${workItemsPath}/`
+    if (parsed.pathname !== expectedPath && parsed.pathname !== expectedPath.slice(0, -1)) {
+      throw new PlaneAdapterError('Plane pagination cursor changed the recovery collection', 'manual_attention')
+    }
+    return `${workItemsPath}/${parsed.search}`
+  }
+
+  const readWorkItemPage = (value: unknown) => {
+    if (Array.isArray(value)) {
+      if (value.some((item) => !isRecord(item))) {
+        throw new PlaneAdapterError('Plane pagination page contained a malformed item', 'manual_attention')
+      }
+      return {items: value as Record<string, unknown>[], nextPath: null as string | null}
+    }
+    if (!isRecord(value)) {
+      throw new PlaneAdapterError('Plane pagination page was malformed', 'manual_attention')
+    }
+    const items = Array.isArray(value.results)
+      ? value.results
+      : Array.isArray(value.data)
+        ? value.data
+        : null
+    if (
+      !items ||
+      items.some(
+        (item) => !isRecord(item) || !stringValue(item.id),
+      )
+    ) {
+      throw new PlaneAdapterError('Plane pagination page omitted an exact item array', 'manual_attention')
+    }
+    const explicitNext = value.next ?? value.next_page ?? value.nextPage
+    const cursor =
+      value.next_cursor ?? value.nextCursor ?? value.next_page_token ?? value.nextPageToken
+    let nextPath: string | null = null
+    if (explicitNext !== undefined && explicitNext !== null) {
+      if (typeof explicitNext !== 'string' || explicitNext.trim() === '') {
+        throw new PlaneAdapterError('Plane pagination next cursor was malformed', 'manual_attention')
+      }
+      nextPath = normalizePagePath(explicitNext)
+    } else if (cursor !== undefined && cursor !== null) {
+      if (typeof cursor !== 'string' || cursor.trim() === '') {
+        throw new PlaneAdapterError('Plane pagination token was malformed', 'manual_attention')
+      }
+      nextPath = `${workItemsPath}?cursor=${encodeURIComponent(cursor)}`
+    }
+    const hasMore = value.has_next ?? value.hasNext ?? value.has_more ?? value.hasMore
+    if (hasMore !== undefined && typeof hasMore !== 'boolean') {
+      throw new PlaneAdapterError('Plane pagination has-more marker was malformed', 'manual_attention')
+    }
+    if (hasMore === true && nextPath === null) {
+      throw new PlaneAdapterError('Plane pagination promised another page without a cursor', 'manual_attention')
+    }
+    if (hasMore === false && nextPath !== null) {
+      throw new PlaneAdapterError('Plane pagination supplied a cursor after its terminal page', 'manual_attention')
+    }
+    return {items: items as Record<string, unknown>[], nextPath}
+  }
+
+  const findByCorrelation = async (correlationKey: string) => {
+    // The current Plane API contract does not prove an exact server-side
+    // correlation filter, so every collection page is read and matched
+    // locally. A bounded walk fails closed instead of treating truncation as
+    // a zero/one duplicate result.
+    const matches: PlaneWorkItem[] = []
+    const seenPaths = new Set<string>()
+    let path = workItemsPath
+    for (let page = 0; page < PLANE_RECOVERY_MAX_DUPLICATE_PAGES; page += 1) {
+      if (seenPaths.has(path)) {
+        throw new PlaneAdapterError('Plane pagination cursor repeated', 'manual_attention')
+      }
+      seenPaths.add(path)
+      const pageValue = readWorkItemPage(await planeFetch(path, {method: 'GET'}, false))
+      for (const value of pageValue.items.filter((item) => readCorrelation(item) === correlationKey)) {
+        const workItemId = stringValue(value.id)
+        if (!workItemId) {
+          throw new PlaneAdapterError(
+            'Plane correlation lookup returned an item without an id',
+            'manual_attention',
+          )
+        }
+        matches.push(parseWorkItem(workItemId, value))
+      }
+      if (pageValue.nextPath === null) {
+        return matches.sort((left, right) => left.workItemId.localeCompare(right.workItemId))
+      }
+      path = pageValue.nextPath
+    }
+    throw new PlaneAdapterError(
+      `Plane pagination exceeded the ${PLANE_RECOVERY_MAX_DUPLICATE_PAGES}-page recovery cap`,
+      'manual_attention',
+    )
+  }
+
   const ensureWorkItemState = async (request: PlaneWorkItemStateRequest) => {
     const current = await getWorkItem(request.workItemId)
     if (current.stateId === request.stateId) return current
@@ -945,6 +1162,8 @@ export const createPlaneAdapter = (
     createIntake,
     getWorkItem,
     getIntakeWorkItem,
+    checkAccess,
+    findByCorrelation,
     ensureComment,
     ensureAttachment,
     ensureWorkItemState,

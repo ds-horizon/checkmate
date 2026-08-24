@@ -203,6 +203,32 @@ Before any database-touching deployment:
 
 The destination policy is approved: the development BIZ project, Backlog for creation, Done for readiness, Todo for same-issue reopen, leased polling, Aza Kai for initial triage and manual attention, BIZ-member evidence visibility, source-owned retention without automatic deletion, and a dedicated service identity using disposable verification data.
 
+### DeepFrame destination extension
+
+The authoritative Checkmate project name selects the development Plane destination:
+names containing `DeepFrame` case-insensitively use workspace
+`e36dfd86-953a-4e33-a410-856208893bb9` and project
+`65452c58-ac2a-4077-a91d-40bf6b5cf4ec` (`DFR`); all other names use the existing
+BIZ project `67726ee5-7d0c-4656-8bc8-b2f8a959d5da` (`BIZ`). The allowlisted
+destination is persisted with each defect cycle and carried in outbox intents.
+The durable route identity is exactly the `(workspace UUID, project UUID)` pair;
+both UUIDs are required on new route payloads and intents. The Plane project
+identifier (`BIZ` or `DFR`) is mutable display/config metadata, not durable
+identity and never selects an adapter. Outbound delivery and inbound readiness
+must validate the persisted UUID pair before using a destination-specific adapter
+or state ID; missing, unknown, or mixed pairs make zero provider calls and require
+manual attention. BIZ and DFR state IDs must never be mixed. DFR uses the locked Backlog
+`431aafc8-5296-407e-80ec-14df0c8d96db`, Todo
+`ba623262-3ee5-4f54-ad55-c837933d7d17`, Done
+`ff905e71-9caa-49cd-83c3-cdd90cd345a6`, and Cancelled
+`2d284b72-cabb-45ec-9e9d-44721ee5b722` state IDs. Existing BIZ state IDs remain
+environment configuration. The normal readiness worker services both destinations
+with isolated cursors and adapters; it does not require a second invocation.
+
+The existing BIZ-41 one-shot/recovery CLI is intentionally BIZ-specific and cannot
+create canonical DFR replacements or relink existing DFR cycles. A separate,
+exact-target DFR recovery entrypoint and review are required for that operation.
+
 The following still block automatic enablement:
 
 - Create the dedicated service identity and prove its least-privilege permissions against the configured base URL, workspace UUID, project UUID, and exact state UUIDs.

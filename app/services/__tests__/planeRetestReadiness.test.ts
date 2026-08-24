@@ -1,18 +1,22 @@
 const transaction = jest.fn()
 const mockClaimIntegrationInboxEvents = jest.fn()
+const mockClaimIntegrationPollCursor = jest.fn()
 const mockFinalizeIntegrationInboxEvent = jest.fn()
+const mockFinalizeIntegrationPollCursor = jest.fn()
 const mockReconcilePlaneRetestReadiness = jest.fn()
+const mockRecordVerifiedIntegrationEvent = jest.fn()
+const select = jest.fn()
 
 jest.mock('~/db/client', () => ({
-  dbClient: {transaction, select: jest.fn()},
+  dbClient: {transaction, select},
 }))
 
 jest.mock('../integrationInbox', () => ({
   claimIntegrationInboxEvents: mockClaimIntegrationInboxEvents,
-  claimIntegrationPollCursor: jest.fn(),
+  claimIntegrationPollCursor: mockClaimIntegrationPollCursor,
   finalizeIntegrationInboxEvent: mockFinalizeIntegrationInboxEvent,
-  finalizeIntegrationPollCursor: jest.fn(),
-  recordVerifiedIntegrationEvent: jest.fn(),
+  finalizeIntegrationPollCursor: mockFinalizeIntegrationPollCursor,
+  recordVerifiedIntegrationEvent: mockRecordVerifiedIntegrationEvent,
 }))
 
 jest.mock('../planeReconciliation', () => ({
@@ -21,6 +25,7 @@ jest.mock('../planeReconciliation', () => ({
 
 import {
   applyPlaneRetestReadiness,
+  fenceInvalidPlaneRetestReadinessRoutes,
   planePollDeliveryId,
   planeRetestReadinessInboxLeaseMs,
   processPlaneRetestReadinessInbox,
@@ -37,6 +42,7 @@ const createQuery = (result: QueryResult) => {
     from: jest.fn(),
     innerJoin: jest.fn(),
     where: jest.fn(),
+    orderBy: jest.fn(),
     limit: jest.fn(),
     for: jest.fn(),
     then: (resolve: (value: QueryResult) => unknown) =>
@@ -45,6 +51,7 @@ const createQuery = (result: QueryResult) => {
   query.from.mockReturnValue(query)
   query.innerJoin.mockReturnValue(query)
   query.where.mockReturnValue(query)
+  query.orderBy.mockReturnValue(query)
   query.limit.mockReturnValue(query)
   query.for.mockReturnValue(query)
   return query
@@ -52,11 +59,13 @@ const createQuery = (result: QueryResult) => {
 
 const readinessConfig = {
   doneStateId: 'done-state-id',
-  workspaceId: 'workspace-id',
-  projectId: 'project-id',
+  workspaceId: 'e36dfd86-953a-4e33-a410-856208893bb9',
+  projectId: '67726ee5-7d0c-4656-8bc8-b2f8a959d5da',
   apiTimeoutMs: 100,
   maxRequestWaitMs: 60_000,
-  destinationKey: 'plane:workspace-id:project-id',
+  destinationKey:
+    'plane:e36dfd86-953a-4e33-a410-856208893bb9:67726ee5-7d0c-4656-8bc8-b2f8a959d5da',
+  planeDestination: 'biz-development' as const,
 }
 
 const createAdapter = (
@@ -80,8 +89,13 @@ const createAdapter = (
 describe('Plane retest readiness', () => {
   beforeEach(() => {
     transaction.mockReset()
+    select.mockReset()
     mockClaimIntegrationInboxEvents.mockReset()
+    mockClaimIntegrationInboxEvents.mockResolvedValue([])
+    mockClaimIntegrationPollCursor.mockReset()
     mockFinalizeIntegrationInboxEvent.mockReset()
+    mockFinalizeIntegrationPollCursor.mockReset()
+    mockRecordVerifiedIntegrationEvent.mockReset()
     mockReconcilePlaneRetestReadiness.mockReset()
     mockReconcilePlaneRetestReadiness.mockResolvedValue('matched')
   })
@@ -102,8 +116,25 @@ describe('Plane retest readiness', () => {
     ).toEqual(
       expect.objectContaining({
         doneStateId: 'done-state-id',
+        planeDestination: 'biz-development',
         destinationKey:
           'plane:e36dfd86-953a-4e33-a410-856208893bb9:67726ee5-7d0c-4656-8bc8-b2f8a959d5da',
+      }),
+    )
+  })
+
+  it('uses the locked DFR Done state for DeepFrame readiness', () => {
+    expect(
+      readPlaneRetestReadinessConfig({
+        PLANE_DESTINATION: 'dfr-development',
+        PLANE_API_KEY: 'key',
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        doneStateId: 'ff905e71-9caa-49cd-83c3-cdd90cd345a6',
+        planeDestination: 'dfr-development',
+        destinationKey:
+          'plane:e36dfd86-953a-4e33-a410-856208893bb9:65452c58-ac2a-4077-a91d-40bf6b5cf4ec',
       }),
     )
   })
@@ -131,6 +162,7 @@ describe('Plane retest readiness', () => {
   )
 
   it('uses the one-item canary default for the configured readiness runner', async () => {
+    mockClaimIntegrationPollCursor.mockResolvedValue(null)
     await expect(
       runConfiguredPlaneRetestReadinessBatch({
         environment: {
@@ -146,6 +178,387 @@ describe('Plane retest readiness', () => {
         leaseMs: 70_100,
       }),
     ).resolves.toEqual(expect.objectContaining({enabled: true, claimedCursor: false}))
+  })
+
+  it('services BIZ and DFR with isolated readiness cursors in one invocation', async () => {
+    mockClaimIntegrationPollCursor.mockResolvedValue(null)
+    await expect(
+      runConfiguredPlaneRetestReadinessBatch({
+        environment: {
+          PLANE_RETEST_READINESS_ENABLED: 'true',
+          PLANE_RETEST_READINESS_WORKER_ENABLED: 'true',
+          PLANE_RETEST_NOTIFICATION_ENABLED: 'true',
+          RESULT_REVISION_COMMANDS_ENABLED: 'true',
+          PLANE_RETEST_READINESS_DONE_STATE_ID: 'biz-done-state-id',
+          PLANE_DESTINATION: 'biz-development',
+          PLANE_API_KEY: 'key',
+          PLANE_API_TIMEOUT_MS: '100',
+        },
+        leaseMs: 70_100,
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({enabled: true, claimedCursor: false}),
+    )
+    expect(mockClaimIntegrationPollCursor).toHaveBeenCalledTimes(2)
+    expect(mockClaimIntegrationPollCursor.mock.calls).toEqual([
+      [
+        expect.objectContaining({
+          destinationKey:
+            'plane:e36dfd86-953a-4e33-a410-856208893bb9:67726ee5-7d0c-4656-8bc8-b2f8a959d5da',
+        }),
+      ],
+      [
+        expect.objectContaining({
+          destinationKey:
+            'plane:e36dfd86-953a-4e33-a410-856208893bb9:65452c58-ac2a-4077-a91d-40bf6b5cf4ec',
+        }),
+      ],
+    ])
+  })
+
+  it('persists both poll routes then claims once and dispatches each event to its own adapter', async () => {
+    const persistedInputs: Array<{
+      provider: string
+      providerDeliveryId: string
+      eventType: string
+      payload: Record<string, unknown>
+    }> = []
+    const bizGetWorkItem = jest.fn(async (workItemId: string) => ({
+      workItemId,
+      stateId: 'biz-state',
+      versionMarker: null,
+      raw: {},
+    }))
+    const dfrGetWorkItem = jest.fn(async (workItemId: string) => ({
+      workItemId,
+      stateId: 'dfr-state',
+      versionMarker: null,
+      raw: {},
+    }))
+    transaction.mockImplementation(async (callback) =>
+      callback({
+        select: jest.fn(() => createQuery([])),
+        update: jest.fn(),
+        insert: jest.fn(),
+      }),
+    )
+    select
+      .mockImplementationOnce(() =>
+        createQuery([
+          {
+            defectCycleId: 201,
+            workItemId: 'biz-work-item',
+            readinessGeneration: 1,
+          },
+        ]),
+      )
+      .mockImplementationOnce(() =>
+        createQuery([
+          {
+            defectCycleId: 202,
+            workItemId: 'dfr-work-item',
+            readinessGeneration: 2,
+          },
+        ]),
+      )
+    mockClaimIntegrationPollCursor
+      .mockResolvedValueOnce({
+        integrationPollCursorId: 301,
+        provider: 'plane',
+        destinationKey: readinessConfig.destinationKey,
+        cursorValue: null,
+        leaseToken: 'cursor-biz',
+        leaseExpiresOn: new Date('2026-08-20T00:01:00.000Z'),
+      })
+      .mockResolvedValueOnce({
+        integrationPollCursorId: 302,
+        provider: 'plane',
+        destinationKey:
+          'plane:e36dfd86-953a-4e33-a410-856208893bb9:65452c58-ac2a-4077-a91d-40bf6b5cf4ec',
+        cursorValue: null,
+        leaseToken: 'cursor-dfr',
+        leaseExpiresOn: new Date('2026-08-20T00:01:00.000Z'),
+      })
+    mockFinalizeIntegrationPollCursor.mockResolvedValue(true)
+    mockRecordVerifiedIntegrationEvent.mockImplementation(async (input) => {
+      persistedInputs.push(input)
+      return {
+        integrationInboxId: 400 + persistedInputs.length,
+        replayed: false,
+      }
+    })
+    mockClaimIntegrationInboxEvents.mockImplementation(async () =>
+      persistedInputs.map((input, index) => ({
+        integrationInboxId: 400 + index + 1,
+        provider: input.provider,
+        providerDeliveryId: input.providerDeliveryId,
+        eventType: input.eventType,
+        payload: input.payload,
+        attemptCount: 1,
+        leaseToken: `inbox-${index + 1}`,
+        leaseExpiresOn: new Date('2026-08-20T00:01:00.000Z'),
+      })),
+    )
+    mockFinalizeIntegrationInboxEvent.mockResolvedValue(true)
+
+    await expect(
+      runConfiguredPlaneRetestReadinessBatch({
+        environment: {
+          PLANE_RETEST_READINESS_ENABLED: 'true',
+          PLANE_RETEST_READINESS_WORKER_ENABLED: 'true',
+          PLANE_RETEST_NOTIFICATION_ENABLED: 'true',
+          RESULT_REVISION_COMMANDS_ENABLED: 'true',
+          PLANE_RETEST_READINESS_DONE_STATE_ID: 'biz-done-state-id',
+          PLANE_DESTINATION: 'biz-development',
+          PLANE_API_KEY: 'key',
+          PLANE_API_TIMEOUT_MS: '100',
+        },
+        adapters: {
+          'biz-development': createAdapter(bizGetWorkItem),
+          'dfr-development': createAdapter(dfrGetWorkItem),
+        },
+        leaseMs: 70_100,
+      }),
+    ).resolves.toEqual(expect.objectContaining({observed: 2, persisted: 2, noOp: 2}))
+
+    expect(mockClaimIntegrationInboxEvents).toHaveBeenCalledTimes(1)
+    expect(persistedInputs).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          providerWorkspaceId:
+            'e36dfd86-953a-4e33-a410-856208893bb9',
+          providerProjectId: '67726ee5-7d0c-4656-8bc8-b2f8a959d5da',
+        }),
+      }),
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          providerWorkspaceId:
+            'e36dfd86-953a-4e33-a410-856208893bb9',
+          providerProjectId: '65452c58-ac2a-4077-a91d-40bf6b5cf4ec',
+        }),
+      }),
+    ])
+    expect(bizGetWorkItem.mock.calls).toEqual([
+      ['biz-work-item'],
+      ['biz-work-item'],
+    ])
+    expect(dfrGetWorkItem.mock.calls).toEqual([
+      ['dfr-work-item'],
+      ['dfr-work-item'],
+    ])
+    expect(mockFinalizeIntegrationInboxEvent).toHaveBeenCalledTimes(2)
+  })
+
+  it('fences missing, unknown, and mixed UUID routes transactionally before polling', async () => {
+    const updatedValues: unknown[] = []
+    const findingValues: unknown[] = []
+    const updateWhere = jest.fn(async () => [{affectedRows: 1}])
+    const update = jest.fn(() => ({
+      set: jest.fn((values: unknown) => {
+        updatedValues.push(values)
+        return {where: updateWhere}
+      }),
+    }))
+    const onDuplicateKeyUpdate = jest.fn(async () => undefined)
+    const insert = jest.fn(() => ({
+      values: jest.fn((values: unknown) => {
+        findingValues.push(values)
+        return {onDuplicateKeyUpdate}
+      }),
+    }))
+    transaction.mockImplementation(async (callback) =>
+      callback({
+        select: jest.fn(() =>
+          createQuery([
+            {
+              defectCycleId: 501,
+              providerWorkspaceId: null,
+              providerProjectId: '65452c58-ac2a-4077-a91d-40bf6b5cf4ec',
+            },
+            {
+              defectCycleId: 502,
+              providerWorkspaceId:
+                'e36dfd86-953a-4e33-a410-856208893bb9',
+              providerProjectId: 'unknown-project',
+            },
+            {
+              defectCycleId: 503,
+              providerWorkspaceId: 'unexpected-workspace',
+              providerProjectId: '65452c58-ac2a-4077-a91d-40bf6b5cf4ec',
+            },
+            {
+              defectCycleId: 504,
+              providerWorkspaceId:
+                'e36dfd86-953a-4e33-a410-856208893bb9',
+              providerProjectId: '67726ee5-7d0c-4656-8bc8-b2f8a959d5da',
+            },
+          ]),
+        ),
+        update,
+        insert,
+      }),
+    )
+    const now = new Date('2026-08-20T00:00:00.000Z')
+
+    await expect(
+      fenceInvalidPlaneRetestReadinessRoutes({now}),
+    ).resolves.toBe(3)
+
+    expect(update).toHaveBeenCalledTimes(3)
+    expect(updatedValues).toEqual([
+      {state: 'manual_attention'},
+      {state: 'manual_attention'},
+      {state: 'manual_attention'},
+    ])
+    expect(insert).toHaveBeenCalledTimes(3)
+    expect(findingValues).toEqual([
+      expect.objectContaining({
+        findingKey: 'plane-cycle:501:route-identity',
+        findingType: 'plane_invalid_route_identity',
+        state: 'manual_attention',
+        actualSnapshot: {
+          providerWorkspaceId: null,
+          providerProjectId: '65452c58-ac2a-4077-a91d-40bf6b5cf4ec',
+        },
+      }),
+      expect.objectContaining({
+        findingKey: 'plane-cycle:502:route-identity',
+        findingType: 'plane_invalid_route_identity',
+      }),
+      expect.objectContaining({
+        findingKey: 'plane-cycle:503:route-identity',
+        findingType: 'plane_invalid_route_identity',
+        actualSnapshot: {
+          providerWorkspaceId: 'unexpected-workspace',
+          providerProjectId: '65452c58-ac2a-4077-a91d-40bf6b5cf4ec',
+        },
+      }),
+    ])
+    expect(onDuplicateKeyUpdate).toHaveBeenCalledTimes(3)
+  })
+
+  it('claims the shared inbox once and routes due BIZ and DFR events to their own adapters', async () => {
+    transaction.mockImplementation(async (callback) =>
+      callback({
+        select: jest.fn(() => createQuery([])),
+        update: jest.fn(),
+        insert: jest.fn(),
+      }),
+    )
+    mockClaimIntegrationPollCursor.mockResolvedValue(null)
+    mockClaimIntegrationInboxEvents.mockResolvedValue([
+      {
+        integrationInboxId: 101,
+        provider: 'plane',
+        providerDeliveryId: 'biz-delivery-101',
+        eventType: 'plane.work_item.authoritative_state',
+        payload: {
+          workItemId: 'biz-work-item',
+          stateId: 'biz-state',
+          providerWorkspaceId:
+            'e36dfd86-953a-4e33-a410-856208893bb9',
+          providerProjectId: '67726ee5-7d0c-4656-8bc8-b2f8a959d5da',
+        },
+        attemptCount: 1,
+        leaseToken: 'lease-biz-101',
+        leaseExpiresOn: new Date('2026-08-20T00:01:00.000Z'),
+      },
+      {
+        integrationInboxId: 102,
+        provider: 'plane',
+        providerDeliveryId: 'dfr-delivery-102',
+        eventType: 'plane.work_item.authoritative_state',
+        payload: {
+          workItemId: 'dfr-work-item',
+          stateId: 'dfr-state',
+          providerWorkspaceId:
+            'e36dfd86-953a-4e33-a410-856208893bb9',
+          providerProjectId: '65452c58-ac2a-4077-a91d-40bf6b5cf4ec',
+        },
+        attemptCount: 1,
+        leaseToken: 'lease-dfr-102',
+        leaseExpiresOn: new Date('2026-08-20T00:01:00.000Z'),
+      },
+    ])
+    mockFinalizeIntegrationInboxEvent.mockResolvedValue(true)
+    mockReconcilePlaneRetestReadiness.mockResolvedValue('matched')
+    const bizGetWorkItem = jest.fn(async () => ({
+      workItemId: 'biz-work-item',
+      stateId: 'biz-state',
+      versionMarker: null,
+      raw: {},
+    }))
+    const dfrGetWorkItem = jest.fn(async () => ({
+      workItemId: 'dfr-work-item',
+      stateId: 'dfr-state',
+      versionMarker: null,
+      raw: {},
+    }))
+
+    await expect(
+      runConfiguredPlaneRetestReadinessBatch({
+        environment: {
+          PLANE_RETEST_READINESS_ENABLED: 'true',
+          PLANE_RETEST_READINESS_WORKER_ENABLED: 'true',
+          PLANE_RETEST_NOTIFICATION_ENABLED: 'true',
+          RESULT_REVISION_COMMANDS_ENABLED: 'true',
+          PLANE_RETEST_READINESS_DONE_STATE_ID: 'biz-done-state-id',
+          PLANE_DESTINATION: 'biz-development',
+          PLANE_API_KEY: 'key',
+          PLANE_API_TIMEOUT_MS: '100',
+        },
+        adapters: {
+          'biz-development': createAdapter(bizGetWorkItem),
+          'dfr-development': createAdapter(dfrGetWorkItem),
+        },
+        leaseMs: 70_100,
+      }),
+    ).resolves.toEqual(expect.objectContaining({noOp: 2}))
+
+    expect(mockClaimIntegrationInboxEvents).toHaveBeenCalledTimes(1)
+    expect(mockClaimIntegrationInboxEvents).toHaveBeenCalledWith(
+      expect.objectContaining({limit: 2}),
+    )
+    expect(bizGetWorkItem).toHaveBeenCalledWith('biz-work-item')
+    expect(dfrGetWorkItem).toHaveBeenCalledWith('dfr-work-item')
+    expect(mockFinalizeIntegrationInboxEvent).toHaveBeenCalledTimes(2)
+  })
+
+  it('finalizes an unknown or missing route without a provider call', async () => {
+    const getWorkItem = jest.fn()
+    mockClaimIntegrationInboxEvents.mockResolvedValue([
+      {
+        integrationInboxId: 103,
+        provider: 'plane',
+        providerDeliveryId: 'unknown-route-103',
+        eventType: 'plane.work_item.authoritative_state',
+        payload: {
+          workItemId: 'unknown-work-item',
+          stateId: 'unknown-state',
+          providerWorkspaceId: 'unexpected-workspace',
+          providerProjectId: 'unexpected-project',
+        },
+        attemptCount: 1,
+        leaseToken: 'lease-unknown-103',
+        leaseExpiresOn: new Date('2026-08-20T00:01:00.000Z'),
+      },
+    ])
+    mockFinalizeIntegrationInboxEvent.mockResolvedValue(true)
+
+    await expect(
+      processPlaneRetestReadinessInbox({
+        config: readinessConfig,
+        adapter: createAdapter(getWorkItem),
+      }),
+    ).resolves.toEqual(expect.objectContaining({manualAttention: 1}))
+
+    expect(getWorkItem).not.toHaveBeenCalled()
+    expect(mockFinalizeIntegrationInboxEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        integrationInboxId: 103,
+        outcome: 'manual_attention',
+      }),
+    )
   })
 
   it('uses the configured readiness batch size when no explicit limit is supplied', async () => {
@@ -610,7 +1023,12 @@ describe('Plane retest readiness', () => {
           provider: 'plane',
           providerDeliveryId: 'delivery-93',
           eventType: 'plane.work_item.authoritative_state',
-          payload: {workItemId: 'work-item-id', stateId: 'done-state-id'},
+          payload: {
+            workItemId: 'work-item-id',
+            stateId: 'done-state-id',
+            providerWorkspaceId: readinessConfig.workspaceId,
+            providerProjectId: readinessConfig.projectId,
+          },
           attemptCount: 1,
           leaseToken: 'lease-93',
           leaseExpiresOn: new Date('2026-08-20T00:01:00.000Z'),
@@ -680,7 +1098,12 @@ describe('Plane retest readiness', () => {
                 provider: 'plane',
                 providerDeliveryId: 'delivery-95',
                 eventType: 'plane.work_item.authoritative_state',
-                payload: {workItemId: 'work-item-id', stateId: 'done-state-id'},
+                payload: {
+                  workItemId: 'work-item-id',
+                  stateId: 'done-state-id',
+                  providerWorkspaceId: readinessConfig.workspaceId,
+                  providerProjectId: readinessConfig.projectId,
+                },
                 attemptCount: 1,
                 leaseToken: 'lease-95',
                 leaseExpiresOn,
@@ -733,7 +1156,12 @@ describe('Plane retest readiness', () => {
           provider: 'plane',
           providerDeliveryId: 'delivery-94',
           eventType: 'plane.work_item.authoritative_state',
-          payload: {workItemId: 'work-item-id', stateId: 'done-state-id'},
+          payload: {
+            workItemId: 'work-item-id',
+            stateId: 'done-state-id',
+            providerWorkspaceId: readinessConfig.workspaceId,
+            providerProjectId: readinessConfig.projectId,
+          },
           attemptCount: 1,
           leaseToken: 'lease-94',
           leaseExpiresOn: new Date('2026-08-20T00:01:00.000Z'),

@@ -8,6 +8,7 @@ import {
 import {dbClient} from '~/db/client'
 import {
   createPlaneAdapter,
+  createPlaneRequestLimiter,
   MAX_PLANE_API_REQUESTS_PER_DELIVERY,
   PlaneAdapter,
   PlaneAdapterConfig,
@@ -16,6 +17,12 @@ import {
   readPlaneAdapterConfig,
   sanitizePlaneError,
 } from './planeAdapter'
+import {
+  PLANE_DESTINATIONS,
+  PlaneDestinationKey,
+  planeDestinationForProviderIds,
+  planeDestinationStateId,
+} from './planeRouting'
 import {
   PlaneDeliveryBatchSummary,
   PlaneResultDeliveryAdapter,
@@ -480,6 +487,43 @@ export const createPlaneResultDeliveryAdapter = ({
   },
 })
 
+export const createPlaneDestinationDeliveryAdapters = ({
+  environment,
+  requestLimiter,
+}: {
+  environment: Readonly<Record<string, string | undefined>>
+  requestLimiter?: ReturnType<typeof createPlaneRequestLimiter>
+}) => {
+  const configured = readPlaneAdapterConfig(environment)
+  const sharedLimiter =
+    requestLimiter ??
+    createPlaneRequestLimiter({
+      requestsPerMinute: configured.maxRequestsPerMinute,
+    })
+  const destinationKeys = Object.keys(PLANE_DESTINATIONS) as PlaneDestinationKey[]
+  return new Map(
+    destinationKeys.map((destinationKey) => {
+      const routeConfig = readPlaneAdapterConfig(environment, destinationKey)
+      return [
+        destinationKey,
+        createPlaneResultDeliveryAdapter({
+          config: routeConfig,
+          planeAdapter: createPlaneAdapter(
+            environment,
+            fetch,
+            sharedLimiter,
+            destinationKey,
+          ),
+          evidenceCopyEnabled: isPlaneEvidenceCopyEnabled(environment),
+          reopenStateId:
+            planeDestinationStateId(destinationKey, 'todo') ??
+            (environment.PLANE_RETEST_REOPEN_STATE_ID?.trim() || undefined),
+        }),
+      ] as const
+    }),
+  )
+}
+
 export const runConfiguredPlaneDeliveryBatch = async ({
   environment = process.env,
   limit,
@@ -504,7 +548,6 @@ export const runConfiguredPlaneDeliveryBatch = async ({
     })
   }
 
-  const config = readPlaneAdapterConfig(environment)
   const configuredLeaseMs = environment.PLANE_DELIVERY_LEASE_MS
   const environmentLeaseMs =
     configuredLeaseMs === undefined ? undefined : Number(configuredLeaseMs)
@@ -514,13 +557,50 @@ export const runConfiguredPlaneDeliveryBatch = async ({
   ) {
     throw new Error('PLANE_DELIVERY_LEASE_MS must be a positive integer')
   }
-  const adapter = createPlaneResultDeliveryAdapter({
-    config,
-    planeAdapter: createPlaneAdapter(environment),
-    evidenceCopyEnabled: isPlaneEvidenceCopyEnabled(environment),
-    reopenStateId:
-      environment.PLANE_RETEST_REOPEN_STATE_ID?.trim() || undefined,
-  })
+  const adapters = createPlaneDestinationDeliveryAdapters({environment})
+  const adapter: PlaneResultDeliveryAdapter = {
+    maxDeliveryMs: Math.max(
+      ...Array.from(adapters.values()).map(
+        (candidate) => candidate.maxDeliveryMs,
+      ),
+    ),
+    async deliverResultRevision(event) {
+      const payload = event.payload
+      const intents = [
+        payload.planeCycleActionIntent,
+        payload.planeEvidenceIntent,
+        payload.planeDefectIntent,
+      ].filter((intent): intent is NonNullable<typeof intent> => Boolean(intent))
+      // Events without a Plane intent have no provider work to perform. Keep
+      // the legacy idempotent no-op behavior; only an explicit, malformed
+      // destination is rejected below.
+      if (intents.length === 0) return {outcome: 'delivered'}
+      const destinationKeys = intents.map((intent) =>
+        planeDestinationForProviderIds(
+          intent.providerWorkspaceId,
+          intent.providerProjectId,
+        ),
+      )
+      const destinationKey = destinationKeys[0]
+      if (
+        !destinationKey ||
+        destinationKeys.some((candidate) => candidate !== destinationKey)
+      ) {
+        return {
+          outcome: 'manual_attention',
+          reason: 'Plane event destination is not allowlisted',
+        }
+      }
+      const selected = adapters.get(destinationKey)
+      if (!selected) {
+        return {
+          outcome: 'manual_attention',
+          reason: 'Plane event destination is not configured',
+        }
+      }
+      return selected.deliverResultRevision(event)
+    },
+  }
   return runPlaneDeliveryBatch({
     adapter,
     environment,

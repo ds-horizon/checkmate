@@ -9,6 +9,7 @@ import {
 } from '../planeEvidenceDelivery'
 
 const config: PlaneAdapterConfig = {
+  destinationKey: 'biz-development',
   apiBaseUrl: 'https://plane-dev.geep-fence.ts.net',
   publicBaseUrl: 'https://plane-dev.geep-fence.ts.net',
   apiKey: 'secret-api-key',
@@ -25,6 +26,8 @@ const intent: PlaneEvidenceIntent = {
   planeEvidenceDeliveryId: 74,
   defectCycleId: 73,
   resultRevisionId: 41,
+  providerWorkspaceId: config.workspaceId,
+  providerProjectId: config.projectId,
 }
 
 const sha256 = (bytes: Buffer | string) =>

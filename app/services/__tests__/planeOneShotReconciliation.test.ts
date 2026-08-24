@@ -29,6 +29,7 @@ import {
 } from '../planeOneShotReconciliation'
 
 const config: PlaneAdapterConfig = {
+  destinationKey: 'biz-development',
   apiBaseUrl: 'https://plane-dev.geep-fence.ts.net',
   publicBaseUrl: 'https://plane-dev.geep-fence.ts.net',
   apiKey: 'secret-api-key',
@@ -59,6 +60,8 @@ const intent: PlaneDefectIntent = {
   description: 'Run 8 / test 9\nCorrelation: checkmate:correlation-41',
   priority: 'high',
   attachmentKeys: [],
+  providerWorkspaceId: config.workspaceId,
+  providerProjectId: config.projectId,
 }
 
 const baseMap = () => ({
@@ -201,6 +204,8 @@ const biz41RecoveryIntent: PlaneDefectIntent = {
     'Checkmate result for LS-API-004: Visual Search\nStatus: Failed\nRun ID: 17\nTest ID: 394\nResult revision: 1\nCorrelation: checkmate:6fff5133-a23f-47d1-ad0d-b47fce28f441\n\nResult note:\nTVP-596 controlled DEV canary: LS-API-004 Visual Search failed result selected for one-way Checkmate to Plane defect delivery verification. Evidence copy is disabled.\n\nScreenshots retained in Checkmate: 0',
   priority: 'none',
   attachmentKeys: [],
+  providerWorkspaceId: config.workspaceId,
+  providerProjectId: config.projectId,
 }
 
 const biz41RecoveryOutbox = (

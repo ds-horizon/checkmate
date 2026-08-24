@@ -19,6 +19,13 @@ import {tests} from '@schema/tests'
 import {users} from '@schema/users'
 import {TestStatusType} from '~/dataController/types'
 import {dbClient} from '~/db/client'
+import {
+  PLANE_DESTINATIONS,
+  PlaneDestination,
+  planeDestinationForProjectName,
+  planeDestinationForProviderIds,
+  planeDestinationMatchesProviderIds,
+} from './planeRouting'
 
 export type SaveHumanResultCommand = {
   resultCommandId: string
@@ -68,8 +75,6 @@ const canonicalCommandPayload = (command: SaveHumanResultCommand) => {
 }
 
 const PLANE_PROVIDER = 'plane'
-const PLANE_WORKSPACE_ID = 'e36dfd86-953a-4e33-a410-856208893bb9'
-const PLANE_PROJECT_ID = '67726ee5-7d0c-4656-8bc8-b2f8a959d5da'
 
 const buildPlaneAttachmentName = ({
   objectKey,
@@ -106,6 +111,7 @@ const buildPlaneCycleActionIntent = ({
   revisionNumber,
   status,
   comment,
+  destination,
 }: {
   action: 'same_issue_reopen' | 'different_issue_superseded' | 'validated_pass'
   defectCycleId: number
@@ -114,14 +120,15 @@ const buildPlaneCycleActionIntent = ({
   revisionNumber: number
   status: TestStatusType
   comment: string | null
+  destination: PlaneDestination
 }) => {
   const marker = `<!-- checkmate-cycle-action:${action}:${defectCycleId}:${resultRevisionId} -->`
   const actionText =
     action === 'same_issue_reopen'
-      ? 'Checkmate retest failed for the same issue. Reopening for development.'
+      ? 'Checkmate retest failed for the same issue. Reopening the linked Plane project.'
       : action === 'different_issue_superseded'
-      ? 'Checkmate retest identified a different issue. This cycle was superseded and a new defect cycle was opened.'
-      : 'Checkmate validated this defect with a human Passed result. Plane workflow state was not changed.'
+      ? 'Checkmate retest identified a different issue. This cycle was superseded and a new linked Plane defect cycle was opened.'
+      : 'Checkmate validated this defect with a human Passed result. The linked Plane project state was not changed.'
   return {
     action,
     defectCycleId,
@@ -136,6 +143,9 @@ const buildPlaneCycleActionIntent = ({
       )}<br>Result revision: ${revisionNumber}</p>`,
       `<p>${escapeHtml(comment?.trim() || '(no result note)')}</p>`,
     ].join(''),
+    providerWorkspaceId: destination.workspaceId,
+    providerProjectId: destination.projectId,
+    providerProjectIdentifier: destination.projectIdentifier,
   }
 }
 
@@ -149,6 +159,7 @@ const buildPlaneDefectIntent = ({
   revisionNumber,
   comment,
   attachmentKeys,
+  destination,
 }: {
   defectCycleId: number
   correlationKey: string
@@ -159,6 +170,7 @@ const buildPlaneDefectIntent = ({
   revisionNumber: number
   comment: string | null
   attachmentKeys: string[]
+  destination: PlaneDestination
 }) => ({
   create: true as const,
   defectCycleId,
@@ -179,6 +191,9 @@ const buildPlaneDefectIntent = ({
   ].join('\n'),
   priority: 'none' as const,
   attachmentKeys,
+  providerWorkspaceId: destination.workspaceId,
+  providerProjectId: destination.projectId,
+  providerProjectIdentifier: destination.projectIdentifier,
 })
 
 export const fingerprintResultCommand = (command: SaveHumanResultCommand) =>
@@ -218,6 +233,7 @@ export const saveHumanResult = async (
         runProjectId: runs.projectId,
         runStatus: runs.status,
         orgId: projects.orgId,
+        projectName: projects.projectName,
         projectCreatedBy: projects.createdBy,
         testProjectId: tests.projectId,
         testTitle: tests.title,
@@ -272,6 +288,11 @@ export const saveHumanResult = async (
     if (aggregate.runStatus !== 'Active') {
       throw new ResultCommandError('Run is not active', 423)
     }
+
+    let planeDestinationKey = planeDestinationForProjectName(
+      aggregate.projectName,
+    )
+    let planeDestination = PLANE_DESTINATIONS[planeDestinationKey]
 
     const aggregateRows = await trx
       .select({testRunMapId: testRunMap.testRunMapId})
@@ -432,6 +453,21 @@ export const saveHumanResult = async (
         'Linked defect cycle requires reconciliation before saving',
         409,
       )
+    }
+
+    if (activeCycle?.provider === PLANE_PROVIDER) {
+      const persistedDestinationKey = planeDestinationForProviderIds(
+        activeCycle.providerWorkspaceId,
+        activeCycle.providerProjectId,
+      )
+      if (!persistedDestinationKey) {
+        throw new ResultCommandError(
+          'The active defect cycle targets an unknown provider destination',
+          409,
+        )
+      }
+      planeDestinationKey = persistedDestinationKey
+      planeDestination = PLANE_DESTINATIONS[planeDestinationKey]
     }
 
     const isFailedReadyRetest =
@@ -600,8 +636,11 @@ export const saveHumanResult = async (
         )
         if (
           activeCycle.provider === PLANE_PROVIDER &&
-          activeCycle.providerWorkspaceId === PLANE_WORKSPACE_ID &&
-          activeCycle.providerProjectId === PLANE_PROJECT_ID &&
+          planeDestinationMatchesProviderIds(
+            planeDestinationKey,
+            activeCycle.providerWorkspaceId,
+            activeCycle.providerProjectId,
+          ) &&
           activeCycle.providerWorkItemId
         ) {
           planeCycleActionIntents.push(
@@ -613,6 +652,7 @@ export const saveHumanResult = async (
               revisionNumber,
               status: command.status,
               comment: effectiveComment,
+              destination: planeDestination,
             }),
           )
         }
@@ -628,8 +668,11 @@ export const saveHumanResult = async (
       if (activeCycle) {
         if (
           activeCycle.provider !== PLANE_PROVIDER ||
-          activeCycle.providerWorkspaceId !== PLANE_WORKSPACE_ID ||
-          activeCycle.providerProjectId !== PLANE_PROJECT_ID
+          !planeDestinationMatchesProviderIds(
+            planeDestinationKey,
+            activeCycle.providerWorkspaceId,
+            activeCycle.providerProjectId,
+          )
         ) {
           throw new ResultCommandError(
             'The active defect cycle targets a different provider destination',
@@ -653,6 +696,7 @@ export const saveHumanResult = async (
             revisionNumber,
             status: command.status,
             comment: effectiveComment,
+            destination: planeDestination,
           }),
         )
         const cycleUpdate = await trx
@@ -708,6 +752,7 @@ export const saveHumanResult = async (
               revisionNumber,
               status: command.status,
               comment: effectiveComment,
+              destination: planeDestination,
             }),
           )
         }
@@ -732,8 +777,8 @@ export const saveHumanResult = async (
           openingRevisionId: resultRevisionId,
           currentEvidenceRevisionId: resultRevisionId,
           provider: PLANE_PROVIDER,
-          providerWorkspaceId: PLANE_WORKSPACE_ID,
-          providerProjectId: PLANE_PROJECT_ID,
+          providerWorkspaceId: planeDestination.workspaceId,
+          providerProjectId: planeDestination.projectId,
           createCorrelationKey: correlationKey,
         })
         defectCycleId = cycleInsert[0].insertId
@@ -750,6 +795,7 @@ export const saveHumanResult = async (
           revisionNumber,
           comment: effectiveComment,
           attachmentKeys,
+          destination: planeDestination,
         })
       }
 
@@ -831,8 +877,8 @@ export const saveHumanResult = async (
             sourceByteSize: source.sourceByteSize,
             providerResourceName: source.providerResourceName,
             provider: PLANE_PROVIDER,
-            providerWorkspaceId: PLANE_WORKSPACE_ID,
-            providerProjectId: PLANE_PROJECT_ID,
+            providerWorkspaceId: planeDestination.workspaceId,
+            providerProjectId: planeDestination.projectId,
           })
         const planeEvidenceDeliveryId = deliveryInsert[0].insertId
         if (!planeEvidenceDeliveryId) {
@@ -842,6 +888,9 @@ export const saveHumanResult = async (
           planeEvidenceDeliveryId,
           defectCycleId,
           resultRevisionId,
+          providerWorkspaceId: planeDestination.workspaceId,
+          providerProjectId: planeDestination.projectId,
+          providerProjectIdentifier: planeDestination.projectIdentifier,
         })
       }
     }

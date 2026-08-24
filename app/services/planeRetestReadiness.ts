@@ -2,6 +2,7 @@ import {createHash} from 'node:crypto'
 import {and, asc, eq, gt, inArray, isNotNull, isNull} from 'drizzle-orm'
 import {
   defectCycles,
+  integrationReconciliations,
   resultNotifications,
   resultRevisions,
 } from '@schema/resultRevisions'
@@ -18,11 +19,20 @@ import {
 } from './integrationInbox'
 import {
   createPlaneAdapter,
+  createPlaneRequestLimiter,
   PlaneAdapter,
   PlaneAdapterError,
+  PlaneRequestLimiter,
   readPlaneAdapterConfig,
   sanitizePlaneError,
 } from './planeAdapter'
+import {
+  PLANE_DESTINATIONS,
+  PlaneDestinationKey,
+  planeDestinationForProviderIds,
+  planeDestinationMatchesProviderIds,
+  planeDestinationStateId,
+} from './planeRouting'
 import {reconcilePlaneRetestReadiness} from './planeReconciliation'
 import {isPlaneRetestReadinessEnabled} from './resultRevisionFlags'
 
@@ -63,6 +73,7 @@ export type PlaneRetestReadinessConfig = {
   apiTimeoutMs: number
   maxRequestWaitMs: number
   destinationKey: string
+  planeDestination: PlaneDestinationKey
 }
 
 export type PlaneRetestReadinessPollTarget = {
@@ -89,8 +100,13 @@ export type PlaneRetestReadinessBatchSummary = {
   staleLeases: number
 }
 
-const readDoneStateId = (environment: Environment) => {
-  const value = environment.PLANE_RETEST_READINESS_DONE_STATE_ID?.trim()
+const readDoneStateId = (
+  environment: Environment,
+  destination: PlaneDestinationKey,
+) => {
+  const value =
+    planeDestinationStateId(destination, 'done') ??
+    environment.PLANE_RETEST_READINESS_DONE_STATE_ID?.trim()
   if (!value) {
     throw new Error(
       'PLANE_RETEST_READINESS_DONE_STATE_ID is required when Plane retest readiness is enabled',
@@ -104,15 +120,17 @@ const readDoneStateId = (environment: Environment) => {
 
 export const readPlaneRetestReadinessConfig = (
   environment: Environment = process.env,
+  destination: PlaneDestinationKey = environment.PLANE_DESTINATION as PlaneDestinationKey,
 ): PlaneRetestReadinessConfig => {
-  const plane = readPlaneAdapterConfig(environment)
+  const plane = readPlaneAdapterConfig(environment, destination)
   return {
-    doneStateId: readDoneStateId(environment),
+    doneStateId: readDoneStateId(environment, destination),
     workspaceId: plane.workspaceId,
     projectId: plane.projectId,
     apiTimeoutMs: plane.timeoutMs,
     maxRequestWaitMs: plane.maxRequestWaitMs,
     destinationKey: `${PLANE_PROVIDER}:${plane.workspaceId}:${plane.projectId}`,
+    planeDestination: destination,
   }
 }
 
@@ -126,6 +144,112 @@ const parseCursor = (value: string | null) => {
     throw new Error('Plane readiness poll cursor is invalid')
   }
   return parsed
+}
+
+const PLANE_READINESS_ELIGIBLE_STATES = [
+  'intake_open',
+  'work_item_open',
+  'ready_for_retest',
+] as const
+
+type InvalidPlaneReadinessRoute = {
+  defectCycleId: number
+  providerWorkspaceId: string | null
+  providerProjectId: string | null
+}
+
+/**
+ * Fence malformed active cycles before either allowlisted poller selects work.
+ * The UUID pair is the only durable route identity; invalid rows must be
+ * visible to operators rather than disappearing behind destination predicates.
+ */
+export const fenceInvalidPlaneRetestReadinessRoutes = async ({
+  now = new Date(),
+}: {
+  now?: Date
+} = {}) => {
+  return dbClient.transaction(async (trx) => {
+    const cycles = await trx
+      .select({
+        defectCycleId: defectCycles.defectCycleId,
+        providerWorkspaceId: defectCycles.providerWorkspaceId,
+        providerProjectId: defectCycles.providerProjectId,
+      })
+      .from(defectCycles)
+      .where(
+        and(
+          eq(defectCycles.provider, PLANE_PROVIDER),
+          eq(defectCycles.activeMarker, 1),
+          inArray(defectCycles.state, [...PLANE_READINESS_ELIGIBLE_STATES]),
+          isNotNull(defectCycles.providerWorkItemId),
+        ),
+      )
+      .for('update')
+
+    const invalidRoutes = cycles.filter(
+      (cycle): cycle is InvalidPlaneReadinessRoute =>
+        planeDestinationForProviderIds(
+          cycle.providerWorkspaceId,
+          cycle.providerProjectId,
+        ) === null,
+    )
+    let fenced = 0
+    for (const cycle of invalidRoutes) {
+      const updated = await trx
+        .update(defectCycles)
+        .set({state: 'manual_attention'})
+        .where(
+          and(
+            eq(defectCycles.defectCycleId, cycle.defectCycleId),
+            eq(defectCycles.provider, PLANE_PROVIDER),
+            eq(defectCycles.activeMarker, 1),
+            inArray(defectCycles.state, [...PLANE_READINESS_ELIGIBLE_STATES]),
+          ),
+        )
+      if (updated[0]?.affectedRows !== 1) continue
+
+      await trx
+        .insert(integrationReconciliations)
+        .values({
+          findingKey: `plane-cycle:${cycle.defectCycleId}:route-identity`,
+          findingType: 'plane_invalid_route_identity',
+          aggregateType: 'defect_cycle',
+          aggregateId: cycle.defectCycleId,
+          severity: 'critical',
+          state: 'manual_attention',
+          expectedSnapshot: {
+            provider: PLANE_PROVIDER,
+            routeIdentity: 'allowlisted workspace/project UUID pair',
+          },
+          actualSnapshot: {
+            providerWorkspaceId: cycle.providerWorkspaceId,
+            providerProjectId: cycle.providerProjectId,
+          },
+          firstDetectedOn: now,
+          lastDetectedOn: now,
+        })
+        .onDuplicateKeyUpdate({
+          set: {
+            findingType: 'plane_invalid_route_identity',
+            severity: 'critical',
+            state: 'manual_attention',
+            expectedSnapshot: {
+              provider: PLANE_PROVIDER,
+              routeIdentity: 'allowlisted workspace/project UUID pair',
+            },
+            actualSnapshot: {
+              providerWorkspaceId: cycle.providerWorkspaceId,
+              providerProjectId: cycle.providerProjectId,
+            },
+            lastDetectedOn: now,
+            resolvedOn: null,
+            resolutionNote: null,
+          },
+        })
+      fenced += 1
+    }
+    return fenced
+  })
 }
 
 export const listPlaneRetestReadinessPollTargets = async ({
@@ -148,11 +272,7 @@ export const listPlaneRetestReadinessPollTargets = async ({
     eq(defectCycles.providerWorkspaceId, config.workspaceId),
     eq(defectCycles.providerProjectId, config.projectId),
     eq(defectCycles.activeMarker, 1),
-    inArray(defectCycles.state, [
-      'intake_open',
-      'work_item_open',
-      'ready_for_retest',
-    ]),
+    inArray(defectCycles.state, [...PLANE_READINESS_ELIGIBLE_STATES]),
     isNotNull(defectCycles.providerWorkItemId),
   ]
   if (cursor !== null) conditions.push(gt(defectCycles.defectCycleId, cursor))
@@ -477,6 +597,20 @@ export const applyPlaneRetestReadiness = async ({
   })
 }
 
+const getEventRoute = (payload: Record<string, unknown>) => {
+  const workspaceId = payload.providerWorkspaceId
+  const projectId = payload.providerProjectId
+  if (typeof workspaceId !== 'string' || typeof projectId !== 'string') {
+    return null
+  }
+  const destination = planeDestinationForProviderIds(workspaceId, projectId)
+  const declaredDestination = payload.providerDestinationKey
+  return typeof declaredDestination === 'string' &&
+    declaredDestination !== destination
+    ? null
+    : destination
+}
+
 const getEventFields = (payload: Record<string, unknown>) => {
   const workItemId = payload.workItemId
   const stateId = payload.stateId
@@ -505,11 +639,15 @@ export const planeRetestReadinessInboxLeaseMs = (
 export const processPlaneRetestReadinessInbox = async ({
   config,
   adapter,
+  configs,
+  adapters,
   limit = DEFAULT_BATCH_SIZE,
   now = () => new Date(),
 }: {
-  config: PlaneRetestReadinessConfig
-  adapter: PlaneAdapter
+  config?: PlaneRetestReadinessConfig
+  adapter?: PlaneAdapter
+  configs?: Partial<Record<PlaneDestinationKey, PlaneRetestReadinessConfig>>
+  adapters?: Partial<Record<PlaneDestinationKey, PlaneAdapter>>
   limit?: number
   now?: () => Date
 }): Promise<
@@ -525,47 +663,76 @@ export const processPlaneRetestReadinessInbox = async ({
     manualAttention: 0,
     staleLeases: 0,
   }
-  // Claim one inbox event at a time. Its lease must cover the adapter's
-  // worst-case rate-limit wait, request timeout, and finalization margin so a
-  // second worker cannot reclaim it while the first one is still processing.
-  const inboxLeaseMs = planeRetestReadinessInboxLeaseMs(config)
-  for (let index = 0; index < limit; index += 1) {
-    const [event] = await claimIntegrationInboxEvents({
-      limit: 1,
-      leaseMs: inboxLeaseMs,
+  const routeConfigs = {
+    ...(configs ?? {}),
+    ...(config ? {[config.planeDestination]: config} : {}),
+  } as Partial<Record<PlaneDestinationKey, PlaneRetestReadinessConfig>>
+  const routeAdapters = {
+    ...(adapters ?? {}),
+    ...(config && adapter ? {[config.planeDestination]: adapter} : {}),
+  } as Partial<Record<PlaneDestinationKey, PlaneAdapter>>
+  const configuredLeases = Object.values(routeConfigs).map(
+    (candidate) => planeRetestReadinessInboxLeaseMs(candidate),
+  )
+  // Claim the shared inbox once after both destination pollers have run. Each
+  // event carries the durable UUID pair and is routed to exactly one adapter.
+  const events =
+    (await claimIntegrationInboxEvents({
+      limit,
+      leaseMs:
+        configuredLeases.length > 0
+          ? Math.max(...configuredLeases)
+          : DEFAULT_LEASE_MS,
       now: now(),
       provider: PLANE_PROVIDER,
       eventType: 'plane.work_item.authoritative_state',
-    })
-    if (!event) break
-
+    })) ?? []
+  for (const event of events) {
     let outcome: 'applied' | 'no_op' | 'retry_due' | 'manual_attention'
     let error: string | undefined
     let availableOn: Date | undefined
     try {
-      const fields = getEventFields(event.payload)
-      if (!fields) {
-        outcome = 'no_op'
+      const destination = getEventRoute(event.payload)
+      const selectedConfig = destination ? routeConfigs[destination] : undefined
+      const selectedAdapter = destination ? routeAdapters[destination] : undefined
+      if (
+        !destination ||
+        !selectedConfig ||
+        !selectedAdapter ||
+        !planeDestinationMatchesProviderIds(
+          destination,
+          selectedConfig.workspaceId,
+          selectedConfig.projectId,
+        )
+      ) {
+        outcome = 'manual_attention'
+        error = 'Plane readiness event destination is missing or not allowlisted'
       } else {
-        const workItem = await adapter.getWorkItem(fields.workItemId)
-        const readinessOutcome = await applyPlaneRetestReadiness({
-          workItemId: workItem.workItemId,
-          stateId: workItem.stateId,
-          config,
-          now: now(),
-        })
-        await reconcilePlaneRetestReadiness({
-          workItemId: workItem.workItemId,
-          authoritativeStateId: workItem.stateId,
-          readinessOutcome,
-          config,
-          now: now(),
-        })
-        if (readinessOutcome === 'manual_attention') {
+        const fields = getEventFields(event.payload)
+        if (!fields) {
           outcome = 'manual_attention'
-          error = 'No active recipient is available for Plane retest readiness'
+          error = 'Plane readiness event payload is missing work item state'
         } else {
-          outcome = readinessOutcome
+          const workItem = await selectedAdapter.getWorkItem(fields.workItemId)
+          const readinessOutcome = await applyPlaneRetestReadiness({
+            workItemId: workItem.workItemId,
+            stateId: workItem.stateId,
+            config: selectedConfig,
+            now: now(),
+          })
+          await reconcilePlaneRetestReadiness({
+            workItemId: workItem.workItemId,
+            authoritativeStateId: workItem.stateId,
+            readinessOutcome,
+            config: selectedConfig,
+            now: now(),
+          })
+          if (readinessOutcome === 'manual_attention') {
+            outcome = 'manual_attention'
+            error = 'No active recipient is available for Plane retest readiness'
+          } else {
+            outcome = readinessOutcome
+          }
         }
       }
     } catch (caught) {
@@ -601,57 +768,64 @@ export const processPlaneRetestReadinessInbox = async ({
   return summary
 }
 
-export const runConfiguredPlaneRetestReadinessBatch = async ({
-  environment = process.env,
+const emptyReadinessSummary = (): PlaneRetestReadinessBatchSummary => ({
+  enabled: false,
+  claimedCursor: false,
+  observed: 0,
+  persisted: 0,
+  replayed: 0,
+  applied: 0,
+  noOp: 0,
+  retryDue: 0,
+  manualAttention: 0,
+  staleLeases: 0,
+})
+
+const addReadinessSummary = (
+  total: PlaneRetestReadinessBatchSummary,
+  part: PlaneRetestReadinessBatchSummary,
+) => {
+  total.enabled ||= part.enabled
+  total.claimedCursor ||= part.claimedCursor
+  total.observed += part.observed
+  total.persisted += part.persisted
+  total.replayed += part.replayed
+  total.applied += part.applied
+  total.noOp += part.noOp
+  total.retryDue += part.retryDue
+  total.manualAttention += part.manualAttention
+  total.staleLeases += part.staleLeases
+}
+
+const runPlaneRetestReadinessDestinationBatch = async ({
+  environment,
+  destination,
   adapter,
-  limit,
-  leaseMs = DEFAULT_LEASE_MS,
-  now = () => new Date(),
+  requestLimiter,
+  batchSize,
+  leaseMs,
+  now,
 }: {
-  environment?: Environment
+  environment: Environment
+  destination: PlaneDestinationKey
   adapter?: PlaneAdapter
-  limit?: number
-  leaseMs?: number
-  now?: () => Date
-} = {}): Promise<PlaneRetestReadinessBatchSummary> => {
-  const summary: PlaneRetestReadinessBatchSummary = {
-    enabled: false,
-    claimedCursor: false,
-    observed: 0,
-    persisted: 0,
-    replayed: 0,
-    applied: 0,
-    noOp: 0,
-    retryDue: 0,
-    manualAttention: 0,
-    staleLeases: 0,
-  }
-  if (!isPlaneRetestReadinessEnabled(environment)) return summary
-
-  const batchSize = limit ?? readPlaneRetestReadinessBatchSize(environment)
-  if (
-    !Number.isInteger(batchSize) ||
-    batchSize < 1 ||
-    batchSize > MAX_BATCH_SIZE
-  ) {
-    throw new Error(
-      `Plane readiness batch size must be between 1 and ${MAX_BATCH_SIZE}`,
-    )
-  }
-  if (!Number.isInteger(leaseMs) || leaseMs < 1) {
-    throw new Error('Plane readiness lease duration must be a positive integer')
-  }
-
-  const config = readPlaneRetestReadinessConfig(environment)
-  const maxPerPollRequestMs =
-    config.apiTimeoutMs + config.maxRequestWaitMs
+  requestLimiter?: PlaneRequestLimiter
+  batchSize: number
+  leaseMs: number
+  now: () => Date
+}): Promise<PlaneRetestReadinessBatchSummary> => {
+  const summary = emptyReadinessSummary()
+  const config = readPlaneRetestReadinessConfig(environment, destination)
+  const maxPerPollRequestMs = config.apiTimeoutMs + config.maxRequestWaitMs
   if (leaseMs < maxPerPollRequestMs * batchSize + MIN_LEASE_SAFETY_MS) {
     throw new Error(
       'Plane readiness lease must exceed serial API limiter and timeout budget plus safety margin',
     )
   }
   summary.enabled = true
-  const planeAdapter = adapter ?? createPlaneAdapter(environment)
+  const planeAdapter =
+    adapter ??
+    createPlaneAdapter(environment, fetch, requestLimiter, destination)
   const cursor = await claimIntegrationPollCursor({
     provider: PLANE_PROVIDER,
     destinationKey: config.destinationKey,
@@ -664,6 +838,9 @@ export const runConfiguredPlaneRetestReadinessBatch = async ({
   let cursorValue: string | null | undefined
   let pollError: string | null = null
   try {
+    summary.manualAttention += await fenceInvalidPlaneRetestReadinessRoutes({
+      now: now(),
+    })
     const targets = await listPlaneRetestReadinessPollTargets({
       config,
       cursorValue: cursor.cursorValue,
@@ -682,7 +859,13 @@ export const runConfiguredPlaneRetestReadinessBatch = async ({
           versionMarker: workItem.versionMarker,
         }),
         eventType: 'plane.work_item.authoritative_state',
-        payload: {workItemId: workItem.workItemId, stateId: workItem.stateId},
+        payload: {
+          workItemId: workItem.workItemId,
+          stateId: workItem.stateId,
+          providerWorkspaceId: config.workspaceId,
+          providerProjectId: config.projectId,
+          providerDestinationKey: config.planeDestination,
+        },
         signatureState: 'not_applicable',
       })
       summary.observed += 1
@@ -709,18 +892,88 @@ export const runConfiguredPlaneRetestReadinessBatch = async ({
   if (!finalizedCursor) summary.staleLeases += 1
   if (pollError) return summary
 
+  return summary
+}
+
+export const runConfiguredPlaneRetestReadinessBatch = async ({
+  environment = process.env,
+  adapter,
+  adapters,
+  limit,
+  leaseMs = DEFAULT_LEASE_MS,
+  now = () => new Date(),
+}: {
+  environment?: Environment
+  adapter?: PlaneAdapter
+  adapters?: Partial<Record<PlaneDestinationKey, PlaneAdapter>>
+  limit?: number
+  leaseMs?: number
+  now?: () => Date
+} = {}): Promise<PlaneRetestReadinessBatchSummary> => {
+  const summary = emptyReadinessSummary()
+  if (!isPlaneRetestReadinessEnabled(environment)) return summary
+
+  const batchSize = limit ?? readPlaneRetestReadinessBatchSize(environment)
+  if (
+    !Number.isInteger(batchSize) ||
+    batchSize < 1 ||
+    batchSize > MAX_BATCH_SIZE
+  ) {
+    throw new Error(
+      `Plane readiness batch size must be between 1 and ${MAX_BATCH_SIZE}`,
+    )
+  }
+  if (!Number.isInteger(leaseMs) || leaseMs < 1) {
+    throw new Error('Plane readiness lease duration must be a positive integer')
+  }
+
+  // A caller-supplied adapter is a compatibility path for one-destination
+  // tests and operators. The normal worker always runs both isolated routes.
+  const configuredDestination =
+    (environment.PLANE_DESTINATION as PlaneDestinationKey | undefined) ??
+    'biz-development'
+  const destinations: PlaneDestinationKey[] = adapter
+    ? [configuredDestination]
+    : (Object.keys(PLANE_DESTINATIONS) as PlaneDestinationKey[])
+  const routeConfigs: Partial<
+    Record<PlaneDestinationKey, PlaneRetestReadinessConfig>
+  > = {}
+  const routeAdapters: Partial<Record<PlaneDestinationKey, PlaneAdapter>> = {}
+  const sharedLimiter = createPlaneRequestLimiter({
+    requestsPerMinute: readPlaneAdapterConfig(environment, 'biz-development')
+      .maxRequestsPerMinute,
+  })
+  for (const destination of destinations) {
+    const routeConfig = readPlaneRetestReadinessConfig(environment, destination)
+    routeConfigs[destination] = routeConfig
+    const routeAdapter =
+      adapters?.[destination] ??
+      (destination === configuredDestination ? adapter : undefined) ??
+      createPlaneAdapter(environment, fetch, sharedLimiter, destination)
+    routeAdapters[destination] = routeAdapter
+    addReadinessSummary(
+      summary,
+      await runPlaneRetestReadinessDestinationBatch({
+        environment,
+        destination,
+        adapter: routeAdapter,
+        requestLimiter: sharedLimiter,
+        batchSize,
+        leaseMs,
+        now,
+      }),
+    )
+  }
   const inboxSummary = await processPlaneRetestReadinessInbox({
-    config,
-    adapter: planeAdapter,
-    limit: batchSize,
+    configs: routeConfigs,
+    adapters: routeAdapters,
+    limit: batchSize * destinations.length,
     now,
   })
-  return {
-    ...summary,
-    applied: summary.applied + inboxSummary.applied,
-    noOp: summary.noOp + inboxSummary.noOp,
-    retryDue: summary.retryDue + inboxSummary.retryDue,
-    manualAttention: summary.manualAttention + inboxSummary.manualAttention,
-    staleLeases: summary.staleLeases + inboxSummary.staleLeases,
-  }
+  summary.applied += inboxSummary.applied
+  summary.noOp += inboxSummary.noOp
+  summary.retryDue += inboxSummary.retryDue
+  summary.manualAttention += inboxSummary.manualAttention
+  summary.staleLeases += inboxSummary.staleLeases
+  return summary
 }

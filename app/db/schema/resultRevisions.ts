@@ -40,12 +40,22 @@ export type PlaneDefectIntent = {
   description: string
   priority: 'urgent' | 'high' | 'medium' | 'low' | 'none'
   attachmentKeys: string[]
+  /** Durable Plane route identity; both UUIDs are required for new intents. */
+  providerWorkspaceId: string
+  providerProjectId: string
+  /** Mutable Plane display metadata; never used as route identity. */
+  providerProjectIdentifier?: string
 }
 
 export type PlaneEvidenceIntent = {
   planeEvidenceDeliveryId: number
   defectCycleId: number
   resultRevisionId: number
+  /** Durable Plane route identity; both UUIDs are required for new intents. */
+  providerWorkspaceId: string
+  providerProjectId: string
+  /** Mutable Plane display metadata; never used as route identity. */
+  providerProjectIdentifier?: string
 }
 
 export type PlaneCycleActionIntent = {
@@ -55,6 +65,11 @@ export type PlaneCycleActionIntent = {
   workItemId: string
   marker: string
   commentHtml: string
+  /** Durable Plane route identity; both UUIDs are required for new intents. */
+  providerWorkspaceId: string
+  providerProjectId: string
+  /** Mutable Plane display metadata; never used as route identity. */
+  providerProjectIdentifier?: string
 }
 
 export type ResultRevisionCommittedPayload = {

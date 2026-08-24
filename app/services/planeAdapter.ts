@@ -1,3 +1,8 @@
+import {
+  PLANE_DESTINATIONS,
+  PlaneDestinationKey,
+} from './planeRouting'
+
 const DEFAULT_TIMEOUT_MS = 10_000
 // Two singleton Plane workers share one API key. Keep each process at half of
 // the approved combined budget unless an operator explicitly tightens it.
@@ -9,19 +14,10 @@ const MAX_ERROR_LENGTH = 500
 /** The maximum documented number of Plane API calls for one outbox event. */
 export const MAX_PLANE_API_REQUESTS_PER_DELIVERY = 6
 
-const PLANE_DESTINATIONS = {
-  'biz-development': {
-    publicBaseUrl: 'https://plane-dev.geep-fence.ts.net',
-    workspaceId: 'e36dfd86-953a-4e33-a410-856208893bb9',
-    workspaceSlug: 'infinimind',
-    projectId: '67726ee5-7d0c-4656-8bc8-b2f8a959d5da',
-    projectIdentifier: 'BIZ',
-  },
-} as const
-
 export type PlanePriority = 'urgent' | 'high' | 'medium' | 'low' | 'none'
 
 export type PlaneAdapterConfig = {
+  destinationKey: PlaneDestinationKey
   apiBaseUrl: string
   publicBaseUrl: string
   apiKey: string
@@ -29,6 +25,11 @@ export type PlaneAdapterConfig = {
   workspaceSlug: string
   projectId: string
   projectIdentifier: string
+  /** Destination-specific state IDs are locked for DFR; BIZ uses env config. */
+  backlogStateId?: string
+  todoStateId?: string
+  doneStateId?: string
+  cancelledStateId?: string
   timeoutMs: number
   maxRequestsPerMinute: number
   maxRequestWaitMs: number
@@ -226,8 +227,9 @@ const readApiBaseUrl = (
 
 export const readPlaneAdapterConfig = (
   environment: Readonly<Record<string, string | undefined>> = process.env,
+  destinationKey?: PlaneDestinationKey,
 ): PlaneAdapterConfig => {
-  const destinationName = required(environment, 'PLANE_DESTINATION')
+  const destinationName = destinationKey ?? required(environment, 'PLANE_DESTINATION')
   if (!(destinationName in PLANE_DESTINATIONS)) {
     throw new Error(`PLANE_DESTINATION is not allowlisted: ${destinationName}`)
   }
@@ -238,6 +240,7 @@ export const readPlaneAdapterConfig = (
     environment.PLANE_MAX_REQUESTS_PER_MINUTE,
   )
   return {
+    destinationKey: destinationName as PlaneDestinationKey,
     ...destination,
     apiBaseUrl: readApiBaseUrl(
       environment.PLANE_API_BASE_URL,
@@ -498,8 +501,9 @@ export const createPlaneAdapter = (
   environment: Readonly<Record<string, string | undefined>> = process.env,
   fetchImplementation: Fetch = fetch,
   requestLimiter?: PlaneRequestLimiter,
+  destinationKey?: PlaneDestinationKey,
 ): PlaneAdapter & PlaneOneShotAdapter => {
-  const config = readPlaneAdapterConfig(environment)
+  const config = readPlaneAdapterConfig(environment, destinationKey)
   const limiter =
     requestLimiter ??
     createPlaneRequestLimiter({

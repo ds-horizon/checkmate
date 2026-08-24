@@ -32,6 +32,7 @@ describe('Plane adapter configuration', () => {
         PLANE_API_TIMEOUT_MS: '2500',
       }),
     ).toEqual({
+      destinationKey: 'biz-development',
       apiBaseUrl: 'https://plane-dev.geep-fence.ts.net',
       publicBaseUrl: 'https://plane-dev.geep-fence.ts.net',
       apiKey: 'key',
@@ -71,6 +72,26 @@ describe('Plane adapter configuration', () => {
         }),
       ).toThrow('PLANE_API_BASE_URL is not an approved exact origin')
     }
+  })
+
+  it('reads the exact DeepFrame destination without reusing BIZ project IDs', () => {
+    expect(
+      readPlaneAdapterConfig({
+        PLANE_DESTINATION: 'dfr-development',
+        PLANE_API_KEY: 'key',
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        destinationKey: 'dfr-development',
+        workspaceId: environmentWorkspaceId,
+        projectId: '65452c58-ac2a-4077-a91d-40bf6b5cf4ec',
+        projectIdentifier: 'DFR',
+        backlogStateId: '431aafc8-5296-407e-80ec-14df0c8d96db',
+        todoStateId: 'ba623262-3ee5-4f54-ad55-c837933d7d17',
+        doneStateId: 'ff905e71-9caa-49cd-83c3-cdd90cd345a6',
+        cancelledStateId: '2d284b72-cabb-45ec-9e9d-44721ee5b722',
+      }),
+    )
   })
 
   it('rejects a missing, non-positive, or unsafe Plane request bound', () => {
@@ -115,6 +136,42 @@ describe('Plane adapter configuration', () => {
 
     expect(waits).toEqual([60_000])
     expect(fetchImplementation).toHaveBeenCalledTimes(7)
+  })
+
+  it('can share one request limiter across BIZ and DFR adapters', async () => {
+    const limiter = {wait: jest.fn().mockResolvedValue(undefined)}
+    const fetchImplementation = jest
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({id: 'biz-work-item', state: {id: 'done-state-id'}}),
+      )
+      .mockResolvedValueOnce(
+        Response.json({id: 'dfr-work-item', state: {id: 'done-state-id'}}),
+      )
+    const bizAdapter = createPlaneAdapter(
+      environment,
+      fetchImplementation,
+      limiter,
+      'biz-development',
+    )
+    const dfrAdapter = createPlaneAdapter(
+      environment,
+      fetchImplementation,
+      limiter,
+      'dfr-development',
+    )
+
+    await bizAdapter.getWorkItem('biz-work-item')
+    await dfrAdapter.getWorkItem('dfr-work-item')
+
+    expect(limiter.wait).toHaveBeenCalledTimes(2)
+    const calls = fetchImplementation.mock.calls as unknown as Array<[string]>
+    expect(calls[0]?.[0]).toContain(
+      environmentProjectId,
+    )
+    expect(calls[1]?.[0]).toContain(
+      '65452c58-ac2a-4077-a91d-40bf6b5cf4ec',
+    )
   })
 
   it('projects the one-shot runtime surface to one authoritative GET', async () => {

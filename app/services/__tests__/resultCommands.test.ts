@@ -49,6 +49,7 @@ const aggregate = {
   runProjectId: 5,
   runStatus: 'Active',
   orgId: 3,
+  projectName: 'Checkout',
   projectCreatedBy: 23,
   testProjectId: 5,
   testTitle: 'Checkout completes successfully',
@@ -498,6 +499,40 @@ describe('result commands', () => {
       }),
     )
     expect(fake.insertedValues).toHaveLength(5)
+  })
+
+  it('uses the persisted provider destination when the Checkmate project is renamed', async () => {
+    const fake = createTransaction({
+      selectResults: [
+        [{...aggregate, projectName: 'DeepFrame Platform'}],
+        [],
+        [{testRunMapId: 17}],
+        [{userId: 23, role: 'user'}],
+        [],
+        [{...activeCycle}],
+      ],
+    })
+    transaction.mockImplementation(async (callback) => callback(fake.trx))
+
+    await expect(
+      saveHumanResult({...command, status: TestStatusType.Passed}),
+    ).resolves.toEqual(
+      expect.objectContaining({defectCycleId: 73, replayed: false}),
+    )
+
+    expect(fake.insertedValues[3]).toEqual(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          planeCycleActionIntent: expect.objectContaining({
+            providerWorkspaceId:
+              'e36dfd86-953a-4e33-a410-856208893bb9',
+            providerProjectId:
+              '67726ee5-7d0c-4656-8bc8-b2f8a959d5da',
+            providerProjectIdentifier: 'BIZ',
+          }),
+        }),
+      }),
+    )
   })
 
   it('keeps a critical cycle-integrity mismatch open instead of validating it', async () => {

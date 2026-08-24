@@ -17,6 +17,7 @@ import type {
 import type {ClaimedResultOutboxEvent} from '../resultOutbox'
 import {
   createPlaneResultDeliveryAdapter,
+  createPlaneDestinationDeliveryAdapters,
   planeDefectCycleStore,
   PlaneDefectCycleStore,
   runConfiguredPlaneDeliveryBatch,
@@ -30,6 +31,7 @@ import {
 import type {PlaneEvidenceDeliveryStore} from '../planeEvidenceDelivery'
 
 const config: PlaneAdapterConfig = {
+  destinationKey: 'biz-development',
   apiBaseUrl: 'https://plane-dev.geep-fence.ts.net',
   publicBaseUrl: 'https://plane-dev.geep-fence.ts.net',
   apiKey: 'secret-api-key',
@@ -50,12 +52,16 @@ const intent: PlaneDefectIntent = {
   description: 'Evidence',
   priority: 'high',
   attachmentKeys: [],
+  providerWorkspaceId: config.workspaceId,
+  providerProjectId: config.projectId,
 }
 
 const evidenceIntent: PlaneEvidenceIntent = {
   planeEvidenceDeliveryId: 74,
   defectCycleId: 73,
   resultRevisionId: 41,
+  providerWorkspaceId: config.workspaceId,
+  providerProjectId: config.projectId,
 }
 
 const event: ClaimedResultOutboxEvent = {
@@ -333,6 +339,8 @@ describe('Plane defect cycle persistence', () => {
           workItemId: 'work-item-id',
           marker: '<!-- checkmate-cycle-action:validated_pass:73:42 -->',
           commentHtml: '<p>Validated.</p>',
+          providerWorkspaceId: config.workspaceId,
+          providerProjectId: config.projectId,
         },
         config,
       ),
@@ -341,6 +349,23 @@ describe('Plane defect cycle persistence', () => {
 })
 
 describe('Plane defect delivery adapter', () => {
+  it.each(['biz-development', 'dfr-development'])(
+    'builds both destination adapters when the configured environment is %s',
+    (configuredDestination) => {
+      const adapters = createPlaneDestinationDeliveryAdapters({
+        environment: {
+          PLANE_DESTINATION: configuredDestination,
+          PLANE_API_KEY: 'secret-api-key',
+          PLANE_RETEST_REOPEN_STATE_ID: 'todo-state-id',
+        },
+      })
+      expect(Array.from(adapters.keys())).toEqual([
+        'biz-development',
+        'dfr-development',
+      ])
+    },
+  )
+
   it('rejects an invalid configured delivery lease before claiming work', async () => {
     await expect(
       runConfiguredPlaneDeliveryBatch({
@@ -430,6 +455,8 @@ describe('Plane defect delivery adapter', () => {
       workItemId: 'work-item-id',
       marker: '<!-- checkmate-cycle-action:same_issue_reopen:73:41 -->',
       commentHtml: '<p>Retest failed for the same issue.</p>',
+      providerWorkspaceId: config.workspaceId,
+      providerProjectId: config.projectId,
     }
     const adapter = createPlaneResultDeliveryAdapter({
       config,
@@ -472,6 +499,8 @@ describe('Plane defect delivery adapter', () => {
       workItemId: 'work-item-id',
       marker: '<!-- checkmate-cycle-action:validated_pass:73:42 -->',
       commentHtml: '<p>Checkmate validated this defect.</p>',
+      providerWorkspaceId: config.workspaceId,
+      providerProjectId: config.projectId,
     }
     const adapter = createPlaneResultDeliveryAdapter({
       config,
@@ -507,6 +536,8 @@ describe('Plane defect delivery adapter', () => {
       workItemId: 'work-item-id',
       marker: '<!-- checkmate-cycle-action:same_issue_reopen:73:41 -->',
       commentHtml: '<p>Retest failed for the same issue.</p>',
+      providerWorkspaceId: config.workspaceId,
+      providerProjectId: config.projectId,
     }
     const adapter = createPlaneResultDeliveryAdapter({
       config,

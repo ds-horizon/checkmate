@@ -886,7 +886,7 @@ export const AddResultDialog = ({
                     </label>
                     <p className="text-xs leading-relaxed text-slate-500">
                       {isPlaneEvidenceCopyEligible
-                        ? 'Copies this result note and eligible screenshots to the BIZ Development Plane project after save. Plane keeps its copy with the ticket.'
+                        ? 'Copies this result note and eligible screenshots to the linked Plane project after save. Plane keeps its copy with the ticket.'
                         : 'Creates a Plane defect after save. Result notes and screenshots remain in Checkmate.'}
                     </p>
                   </div>

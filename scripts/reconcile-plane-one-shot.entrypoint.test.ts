@@ -41,9 +41,11 @@ const OPERATOR_ENVIRONMENT_KEYS = [
 const runEntrypoint = ({
   processEnvironment,
   dotEnv,
+  cliArguments = CLI_ARGUMENTS,
 }: {
   processEnvironment?: Record<string, string>
   dotEnv: string
+  cliArguments?: string[]
 }) => {
   const temporaryDirectory = mkdtempSync(join(tmpdir(), 'tvp599-one-shot-'))
   writeFileSync(join(temporaryDirectory, '.env'), `${dotEnv.trim()}\n`)
@@ -62,7 +64,7 @@ const runEntrypoint = ({
         '--import',
         resolveModule.resolve('tsx/esm'),
         resolve(process.cwd(), 'scripts/reconcile-plane-one-shot.ts'),
-        ...CLI_ARGUMENTS,
+        ...cliArguments,
       ],
       {
         cwd: temporaryDirectory,
@@ -73,6 +75,7 @@ const runEntrypoint = ({
     )
     return {
       status: result.status,
+      signal: result.signal,
       stdout: result.stdout ?? '',
       stderr: result.stderr ?? '',
       error: result.error,
@@ -250,5 +253,67 @@ describe('plane one-shot entrypoint environment boundary', () => {
     expect(output).not.toContain('dotenv-db-url.invalid')
     expect(output).not.toContain('operator-pass')
     expect(output).not.toContain('dotenv-pass')
+  })
+
+  it('rejects the first and second recovery flags together before environment loading', () => {
+    const result = runEntrypoint({
+      cliArguments: CLI_ARGUMENTS.filter(
+        (argument) => argument !== '--verify-only',
+      ).concat(
+        '--recover-biz41-provider-observation-mismatch',
+        '--recover-biz41-second-provider-observation-mismatch',
+      ),
+      dotEnv: ordinaryPlaneConfig({timeout: '100'}),
+    })
+    const output = `${result.stdout}\n${result.stderr}`
+
+    expect(result.status).toBeNull()
+    expect(result.signal).toBe('SIGTERM')
+    expect(result.error).toMatchObject({code: 'ETIMEDOUT'})
+    expect(output).toContain(
+      'Plane one-shot reconciliation failed: [redacted] cannot be combined with [redacted]',
+    )
+    expect(output).not.toContain('temporary-entrypoint-secret')
+  })
+
+  it('rejects the second recovery flag with verify-only before environment loading', () => {
+    const result = runEntrypoint({
+      cliArguments: CLI_ARGUMENTS.concat(
+        '--recover-biz41-second-provider-observation-mismatch',
+      ),
+      dotEnv: ordinaryPlaneConfig({timeout: '100'}),
+    })
+    const output = `${result.stdout}\n${result.stderr}`
+
+    expect(result.status).toBeNull()
+    expect(result.signal).toBe('SIGTERM')
+    expect(result.error).toMatchObject({code: 'ETIMEDOUT'})
+    expect(output).toContain(
+      'Plane one-shot reconciliation failed: [redacted] cannot be combined with --verify-only',
+    )
+    expect(output).not.toContain('temporary-entrypoint-secret')
+  })
+
+  it('parses the standalone second recovery flag before downstream config validation', () => {
+    const result = runEntrypoint({
+      cliArguments: CLI_ARGUMENTS.filter(
+        (argument) => argument !== '--verify-only',
+      ).concat('--recover-biz41-second-provider-observation-mismatch'),
+      processEnvironment: {
+        PLANE_CANARY_ONE_SHOT_ENABLED: 'true',
+        DB_URL: 'not a url',
+      },
+      dotEnv: ordinaryPlaneConfig({timeout: '100'}),
+    })
+    const output = `${result.stdout}\n${result.stderr}`
+
+    expect(result.status).toBe(1)
+    expect(result.error).toBeUndefined()
+    expect(output).toContain('Invalid URL')
+    expect(output).not.toContain('Unknown or duplicate argument')
+    expect(output).not.toContain(
+      '--recover-biz41-second-provider-observation-mismatch cannot be combined',
+    )
+    expect(output).not.toContain('temporary-entrypoint-secret')
   })
 })

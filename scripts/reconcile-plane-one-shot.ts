@@ -27,7 +27,8 @@ const USAGE = `Usage: yarn plane:reconcile-one-shot \\
   --project-id <id> --run-id <id> --test-id <id> \\
   --work-item-id <id> --intake-id <id> --correlation-key <key> \\
   --destination biz-development [--verify-only] \\
-  [--recover-biz41-provider-observation-mismatch]`
+  [--recover-biz41-provider-observation-mismatch | \\
+   --recover-biz41-second-provider-observation-mismatch]`
 
 const ARGUMENTS = {
   '--project-id': 'projectId',
@@ -58,6 +59,7 @@ const parseArguments = (argv: string[]): ParsedArguments => {
   const parsed: ParsedValue = {}
   let verifyOnly = false
   let recoverBiz41ProviderObservationMismatch = false
+  let recoverBiz41SecondProviderObservationMismatch = false
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]
     if (argument === '--help') {
@@ -74,6 +76,13 @@ const parseArguments = (argv: string[]): ParsedArguments => {
         throw new Error(`Unknown or duplicate argument: ${argument}`)
       }
       recoverBiz41ProviderObservationMismatch = true
+      continue
+    }
+    if (argument === '--recover-biz41-second-provider-observation-mismatch') {
+      if (recoverBiz41SecondProviderObservationMismatch) {
+        throw new Error(`Unknown or duplicate argument: ${argument}`)
+      }
+      recoverBiz41SecondProviderObservationMismatch = true
       continue
     }
     const field = ARGUMENTS[argument as keyof typeof ARGUMENTS]
@@ -112,6 +121,19 @@ const parseArguments = (argv: string[]): ParsedArguments => {
       '--recover-biz41-provider-observation-mismatch cannot be combined with --verify-only',
     )
   }
+  if (verifyOnly && recoverBiz41SecondProviderObservationMismatch) {
+    throw new Error(
+      '--recover-biz41-second-provider-observation-mismatch cannot be combined with --verify-only',
+    )
+  }
+  if (
+    recoverBiz41ProviderObservationMismatch &&
+    recoverBiz41SecondProviderObservationMismatch
+  ) {
+    throw new Error(
+      '--recover-biz41-provider-observation-mismatch cannot be combined with --recover-biz41-second-provider-observation-mismatch',
+    )
+  }
   return {
     input: {
       projectId: toPositiveInteger('projectId'),
@@ -124,6 +146,12 @@ const parseArguments = (argv: string[]): ParsedArguments => {
       ...(recoverBiz41ProviderObservationMismatch
         ? {
             recoverBiz41ProviderObservationMismatch: true,
+            recoveryPayloadDigest: PLANE_ONE_SHOT_BIZ41_RECOVERY_PAYLOAD_DIGEST,
+          }
+        : {}),
+      ...(recoverBiz41SecondProviderObservationMismatch
+        ? {
+            recoverBiz41SecondProviderObservationMismatch: true,
             recoveryPayloadDigest: PLANE_ONE_SHOT_BIZ41_RECOVERY_PAYLOAD_DIGEST,
           }
         : {}),

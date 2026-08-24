@@ -33,6 +33,8 @@ export const PLANE_ONE_SHOT_PROVIDER_CALL_STARTED_MARKER =
   'operator_reconciliation_required: provider call started'
 export const PLANE_ONE_SHOT_BIZ41_RECOVERY_MARKER =
   'operator_reconciliation_required: BIZ-41 provider observation recovery started'
+export const PLANE_ONE_SHOT_BIZ41_SECOND_RECOVERY_MARKER =
+  'operator_reconciliation_required: BIZ-41 second provider observation recovery started'
 export const PLANE_ONE_SHOT_BIZ41_RECOVERY_PAYLOAD_DIGEST =
   '2be2537060cd11f4127efe99f599fbb9d61beea96443af679114eff3c81bf61d'
 
@@ -72,6 +74,7 @@ export type PlaneOneShotReconciliationInput = {
   expectedCorrelationKey: string
   expectedDestination: PlaneOneShotDestination
   recoverBiz41ProviderObservationMismatch?: boolean
+  recoverBiz41SecondProviderObservationMismatch?: boolean
   recoveryPayloadDigest?: string
 }
 
@@ -192,6 +195,7 @@ type ClaimedReconciliation = {
   config: PlaneAdapterConfig
   legacyRepair?: boolean
   biz41Recovery?: boolean
+  biz41SecondRecovery?: boolean
 }
 
 type PlaneObservedFields = {
@@ -469,6 +473,48 @@ const validateProviderObservation = ({
   return observed
 }
 
+const validateBiz41SecondProviderObservation = ({
+  workItem,
+  input,
+  config,
+  payload,
+}: {
+  workItem: PlaneWorkItem
+  input: PlaneOneShotReconciliationInput
+  config: PlaneAdapterConfig
+  payload: ReconciliationOutbox['payload']
+}) => {
+  if (workItem.workItemId !== input.expectedWorkItemId) {
+    throw new Error('Plane work-item identity did not match the exact target')
+  }
+  const observed = observedFields(workItem)
+  if (
+    observed.workspaceId !== config.workspaceId ||
+    observed.projectId !== config.projectId ||
+    (observed.projectIdentifier !== null &&
+      observed.projectIdentifier !== config.projectIdentifier)
+  ) {
+    throw new Error(
+      'Plane work item was not observed in the exact BIZ destination',
+    )
+  }
+  if (!workItem.stateId.trim()) {
+    throw new Error('Plane work item did not return an authoritative state')
+  }
+  if (observed.sequenceId !== BIZ41_RECOVERY.providerSequenceId) {
+    throw new Error('Plane work-item sequence did not match the exact target')
+  }
+  if (
+    payload.projectId !== input.projectId ||
+    payload.runId !== input.runId ||
+    payload.testId !== input.testId ||
+    payload.testRunMapId === undefined
+  ) {
+    throw new Error('Plane outbox payload IDs did not match the exact target')
+  }
+  return observed
+}
+
 const claimable = (outbox: ReconciliationOutbox, now: Date) =>
   outbox.deliveryState === 'manual_attention' ||
   (['pending', 'retry_due', 'failed'].includes(outbox.deliveryState) &&
@@ -519,6 +565,7 @@ const hasProviderCallFence = (lastError: string | null) =>
   Boolean(
     lastError?.startsWith(PLANE_ONE_SHOT_PROVIDER_CALL_STARTED_MARKER) ||
       lastError?.startsWith(PLANE_ONE_SHOT_BIZ41_RECOVERY_MARKER) ||
+      lastError?.startsWith(PLANE_ONE_SHOT_BIZ41_SECOND_RECOVERY_MARKER) ||
       lastError?.startsWith(PLANE_ONE_SHOT_FINALIZATION_FAILURE_MARKER),
   )
 
@@ -1133,7 +1180,11 @@ const loadAndClaim = async ({
   | {outcome: 'matched'; claim: ClaimedReconciliation}
   | {outcome: 'refused'; result: PlaneOneShotReconciliationResult}
 > => {
-  const isBiz41Recovery = input.recoverBiz41ProviderObservationMismatch === true
+  const isBiz41FirstRecovery =
+    input.recoverBiz41ProviderObservationMismatch === true
+  const isBiz41SecondRecovery =
+    input.recoverBiz41SecondProviderObservationMismatch === true
+  const isBiz41Recovery = isBiz41FirstRecovery || isBiz41SecondRecovery
   if (isBiz41Recovery && !recoveryInputMatchesIncident(input)) {
     return {
       outcome: 'refused',
@@ -1360,8 +1411,10 @@ const loadAndClaim = async ({
       }
 
       const recoveryOriginalFence =
-        isBiz41Recovery &&
-        outbox.lastError === PLANE_ONE_SHOT_PROVIDER_CALL_STARTED_MARKER
+        (isBiz41FirstRecovery &&
+          outbox.lastError === PLANE_ONE_SHOT_PROVIDER_CALL_STARTED_MARKER) ||
+        (isBiz41SecondRecovery &&
+          outbox.lastError === PLANE_ONE_SHOT_BIZ41_RECOVERY_MARKER)
       if (hasProviderCallFence(outbox.lastError) && !recoveryOriginalFence) {
         return {
           outcome: 'refused' as const,
@@ -1573,7 +1626,10 @@ const loadAndClaim = async ({
           outbox.deliveredOn === null ||
           outbox.leaseToken !== null ||
           outbox.leaseExpiresOn !== null ||
-          outbox.lastError !== PLANE_ONE_SHOT_PROVIDER_CALL_STARTED_MARKER ||
+          outbox.lastError !==
+            (isBiz41FirstRecovery
+              ? PLANE_ONE_SHOT_PROVIDER_CALL_STARTED_MARKER
+              : PLANE_ONE_SHOT_BIZ41_RECOVERY_MARKER) ||
           outbox.payloadDigest !== BIZ41_RECOVERY.payloadDigest)
       ) {
         return {
@@ -1617,6 +1673,7 @@ const loadAndClaim = async ({
         config,
         legacyRepair: isLegacyRepair,
         biz41Recovery: isBiz41Recovery,
+        biz41SecondRecovery: isBiz41SecondRecovery,
       }
       if (isReplay) {
         if (
@@ -1646,9 +1703,15 @@ const loadAndClaim = async ({
       if (outbox.deliveryState === 'delivered') {
         if (isLegacyRepair) {
           if (isBiz41Recovery) {
+            const expectedMarker = isBiz41FirstRecovery
+              ? PLANE_ONE_SHOT_PROVIDER_CALL_STARTED_MARKER
+              : PLANE_ONE_SHOT_BIZ41_RECOVERY_MARKER
+            const recoveryMarker = isBiz41FirstRecovery
+              ? PLANE_ONE_SHOT_BIZ41_RECOVERY_MARKER
+              : PLANE_ONE_SHOT_BIZ41_SECOND_RECOVERY_MARKER
             const fenceUpdate = await trx
               .update(resultOutbox)
-              .set({lastError: PLANE_ONE_SHOT_BIZ41_RECOVERY_MARKER})
+              .set({lastError: recoveryMarker})
               .where(
                 and(
                   eq(resultOutbox.resultOutboxId, outbox.resultOutboxId),
@@ -1656,10 +1719,7 @@ const loadAndClaim = async ({
                   eq(resultOutbox.deliveryState, 'delivered'),
                   isNull(resultOutbox.leaseToken),
                   isNull(resultOutbox.leaseExpiresOn),
-                  eq(
-                    resultOutbox.lastError,
-                    PLANE_ONE_SHOT_PROVIDER_CALL_STARTED_MARKER,
-                  ),
+                  eq(resultOutbox.lastError, expectedMarker),
                   sql`${resultOutbox.deliveredOn} is not null`,
                 ),
               )
@@ -1882,7 +1942,8 @@ const loadAndClaim = async ({
 const recoveryInputMatchesIncident = (
   input: PlaneOneShotReconciliationInput,
 ) =>
-  input.recoverBiz41ProviderObservationMismatch === true &&
+  (input.recoverBiz41ProviderObservationMismatch === true ||
+    input.recoverBiz41SecondProviderObservationMismatch === true) &&
   input.recoveryPayloadDigest === BIZ41_RECOVERY.payloadDigest &&
   input.projectId === BIZ41_RECOVERY.projectId &&
   input.runId === BIZ41_RECOVERY.runId &&
@@ -1891,6 +1952,13 @@ const recoveryInputMatchesIncident = (
   input.expectedIntakeId === BIZ41_RECOVERY.providerIntakeId &&
   input.expectedCorrelationKey === BIZ41_RECOVERY.correlationKey &&
   input.expectedDestination === PLANE_CANARY_ONE_SHOT_DESTINATION
+
+const recoveryMarkerForClaim = (claim: ClaimedReconciliation) =>
+  claim.biz41SecondRecovery
+    ? PLANE_ONE_SHOT_BIZ41_SECOND_RECOVERY_MARKER
+    : claim.biz41Recovery
+    ? PLANE_ONE_SHOT_BIZ41_RECOVERY_MARKER
+    : PLANE_ONE_SHOT_PROVIDER_CALL_STARTED_MARKER
 
 const manualAttention = async ({
   claim,
@@ -2023,7 +2091,7 @@ const manualAttention = async ({
       }
 
       const manualAttentionMarker = claim.biz41Recovery
-        ? PLANE_ONE_SHOT_BIZ41_RECOVERY_MARKER
+        ? recoveryMarkerForClaim(claim)
         : finalizationFailure
           ? PLANE_ONE_SHOT_FINALIZATION_FAILURE_MARKER
           : PLANE_ONE_SHOT_PROVIDER_CALL_STARTED_MARKER
@@ -2305,10 +2373,7 @@ const finalizeLegacyRepair = async ({
         outbox.leaseToken !== null ||
         outbox.leaseExpiresOn !== null ||
         outbox.deliveredOn === null ||
-        outbox.lastError !==
-          (claim.biz41Recovery
-            ? PLANE_ONE_SHOT_BIZ41_RECOVERY_MARKER
-            : PLANE_ONE_SHOT_PROVIDER_CALL_STARTED_MARKER) ||
+        outbox.lastError !== recoveryMarkerForClaim(claim) ||
         outbox.payload.resultRevisionId !== claim.revision.resultRevisionId ||
         outbox.payload.testRunMapId !== claim.map.testRunMapId ||
         outbox.payload.projectId !== claim.input.projectId ||
@@ -2427,12 +2492,7 @@ const finalizeLegacyRepair = async ({
             isNull(resultOutbox.leaseToken),
             isNull(resultOutbox.leaseExpiresOn),
             sql`${resultOutbox.deliveredOn} is not null`,
-            eq(
-              resultOutbox.lastError,
-              claim.biz41Recovery
-                ? PLANE_ONE_SHOT_BIZ41_RECOVERY_MARKER
-                : PLANE_ONE_SHOT_PROVIDER_CALL_STARTED_MARKER,
-            ),
+            eq(resultOutbox.lastError, recoveryMarkerForClaim(claim)),
           ),
         )
       if (outboxUpdate[0].affectedRows !== 1) {
@@ -2773,9 +2833,21 @@ export const reconcilePlaneDefectOneShot = async ({
       'Plane adapter destination is not the exact BIZ destination',
     )
   }
-  if (input.recoverBiz41ProviderObservationMismatch && verifyOnly) {
+  if (
+    (input.recoverBiz41ProviderObservationMismatch ||
+      input.recoverBiz41SecondProviderObservationMismatch) &&
+    verifyOnly
+  ) {
     throw new Error(
       'BIZ-41 provider-observation recovery cannot be combined with verify-only',
+    )
+  }
+  if (
+    input.recoverBiz41ProviderObservationMismatch &&
+    input.recoverBiz41SecondProviderObservationMismatch
+  ) {
+    throw new Error(
+      'BIZ-41 first and second provider-observation recovery cannot be combined',
     )
   }
   if (
@@ -2817,13 +2889,20 @@ export const reconcilePlaneDefectOneShot = async ({
     const intent = claim.outbox.payload.planeDefectIntent
     if (!intent?.create)
       throw new Error('Plane create intent was missing during reconciliation')
-    observed = validateProviderObservation({
-      workItem,
-      input,
-      config,
-      intent,
-      payload: claim.outbox.payload,
-    })
+    observed = claim.biz41SecondRecovery
+      ? validateBiz41SecondProviderObservation({
+          workItem,
+          input,
+          config,
+          payload: claim.outbox.payload,
+        })
+      : validateProviderObservation({
+          workItem,
+          input,
+          config,
+          intent,
+          payload: claim.outbox.payload,
+        })
   } catch (error) {
     const reason = sanitizePlaneError(error)
     if (!claim.legacyRepair) {

@@ -20,6 +20,7 @@ import {
   PLANE_ONE_SHOT_MAX_DEADLOCK_ATTEMPTS,
   PLANE_ONE_SHOT_FINALIZATION_FAILURE_MARKER,
   PLANE_ONE_SHOT_BIZ41_RECOVERY_MARKER,
+  PLANE_ONE_SHOT_BIZ41_SECOND_RECOVERY_MARKER,
   PLANE_ONE_SHOT_BIZ41_RECOVERY_PAYLOAD_DIGEST,
   PLANE_ONE_SHOT_PROVIDER_CALL_STARTED_MARKER,
   reconcilePlaneDefectOneShot,
@@ -153,6 +154,12 @@ const biz41RecoveryInput: PlaneOneShotReconciliationInput = {
   recoveryPayloadDigest: PLANE_ONE_SHOT_BIZ41_RECOVERY_PAYLOAD_DIGEST,
 }
 
+const biz41SecondRecoveryInput: PlaneOneShotReconciliationInput = {
+  ...biz41RecoveryInput,
+  recoverBiz41ProviderObservationMismatch: false,
+  recoverBiz41SecondProviderObservationMismatch: true,
+}
+
 const biz41RecoveryMap = () => ({
   testRunMapId: 386,
   projectId: 4,
@@ -266,6 +273,23 @@ const biz41RecoveryWorkItem = (
     correlation_key: biz41RecoveryInput.expectedCorrelationKey,
     name: biz41RecoveryIntent.title,
     description: biz41RecoveryIntent.description,
+    sequence_id: 41,
+  },
+  ...overrides,
+})
+
+const biz41SecondRecoveryWorkItem = (
+  overrides: Partial<PlaneWorkItem> = {},
+): PlaneWorkItem => ({
+  workItemId: biz41SecondRecoveryInput.expectedWorkItemId,
+  stateId: 'state-open',
+  versionMarker: '2026-08-21T06:32:52.000Z',
+  raw: {
+    id: biz41SecondRecoveryInput.expectedWorkItemId,
+    state: {id: 'state-open'},
+    workspace_id: config.workspaceId,
+    project_id: config.projectId,
+    project_identifier: config.projectIdentifier,
     sequence_id: 41,
   },
   ...overrides,
@@ -518,6 +542,45 @@ const runBiz41Recovery = async ({
   }
   return reconcilePlaneDefectOneShot({
     input: biz41RecoveryInput,
+    config,
+    planeAdapter: adapter,
+    enabled: true,
+    now: new Date('2026-08-22T00:01:00.000Z'),
+  })
+}
+
+const runBiz41SecondRecovery = async ({
+  adapter = createAdapter(biz41SecondRecoveryWorkItem()),
+  map = biz41RecoveryMap(),
+  cycle = biz41RecoveryCycle(),
+  revision = biz41RecoveryRevision(),
+  outbox = biz41RecoveryOutbox(PLANE_ONE_SHOT_BIZ41_RECOVERY_MARKER),
+  updates = [createUpdateQuery()],
+  finalize,
+}: {
+  adapter?: PlaneOneShotAdapter
+  map?: unknown
+  cycle?: unknown
+  revision?: unknown
+  outbox?: unknown
+  updates?: ReturnType<typeof createUpdateQuery>[]
+  finalize?: ReturnType<typeof createFinalizeTransaction>
+} = {}) => {
+  transaction.mockImplementationOnce(async (callback) => {
+    lastClaimTransaction = createTransaction({
+      mapRows: [map],
+      cycleRows: [cycle],
+      revisionRows: [revision],
+      outboxRows: [outbox],
+      updates,
+    })
+    return callback(lastClaimTransaction)
+  })
+  if (finalize) {
+    transaction.mockImplementationOnce(async (callback) => callback(finalize))
+  }
+  return reconcilePlaneDefectOneShot({
+    input: biz41SecondRecoveryInput,
     config,
     planeAdapter: adapter,
     enabled: true,
@@ -1473,6 +1536,90 @@ describe('Plane one-shot reconciliation', () => {
     expect(adapter.getWorkItem).toHaveBeenCalledTimes(1)
   })
 
+  it('uses the second BIZ-41 recovery fence and accepts a work-item-only observation', async () => {
+    const adapter = createAdapter(biz41SecondRecoveryWorkItem())
+    const markerCas = createUpdateQuery()
+    const cycleUpdate = createUpdateQuery()
+    const outboxUpdate = createUpdateQuery()
+    const result = await runBiz41SecondRecovery({
+      adapter,
+      updates: [markerCas],
+      finalize: createFinalizeTransaction(
+        [biz41RecoveryCycle()],
+        [cycleUpdate, outboxUpdate],
+        [biz41RecoveryOutbox(PLANE_ONE_SHOT_BIZ41_SECOND_RECOVERY_MARKER)],
+      ),
+    })
+
+    expect(result).toMatchObject({
+      outcome: 'reconciled',
+      providerWorkItemId: biz41SecondRecoveryInput.expectedWorkItemId,
+      providerIntakeId: biz41SecondRecoveryInput.expectedIntakeId,
+      providerStateId: 'state-open',
+    })
+    expect(adapter.getWorkItem).toHaveBeenCalledTimes(1)
+    expect(adapter.getIntakeWorkItem).not.toHaveBeenCalled()
+    expect(markerCas.set).toHaveBeenCalledWith({
+      lastError: PLANE_ONE_SHOT_BIZ41_SECOND_RECOVERY_MARKER,
+    })
+    expect(outboxUpdate.set).toHaveBeenCalledWith({lastError: null})
+  })
+
+  it('preserves the second BIZ-41 marker after GET failure and refuses a later GET', async () => {
+    const adapter = createAdapter(biz41SecondRecoveryWorkItem())
+    adapter.getWorkItem.mockRejectedValueOnce(new Error('Plane unavailable'))
+    const markerCas = createUpdateQuery()
+    const firstResult = await runBiz41SecondRecovery({
+      adapter,
+      updates: [markerCas],
+    })
+
+    expect(firstResult).toMatchObject({
+      outcome: 'manual_attention',
+      reason: 'Plane unavailable',
+    })
+    expect(markerCas.set).toHaveBeenCalledWith({
+      lastError: PLANE_ONE_SHOT_BIZ41_SECOND_RECOVERY_MARKER,
+    })
+    expect(adapter.getWorkItem).toHaveBeenCalledTimes(1)
+
+    const replayResult = await runBiz41SecondRecovery({
+      adapter,
+      outbox: biz41RecoveryOutbox(PLANE_ONE_SHOT_BIZ41_SECOND_RECOVERY_MARKER),
+      updates: [],
+    })
+    expect(replayResult).toMatchObject({
+      outcome: 'refused',
+      reason:
+        'A prior provider call started or database finalization failed; explicit operator reconciliation is required',
+    })
+    expect(adapter.getWorkItem).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['wrong project identifier', {project_identifier: 'WRONG'}],
+    ['wrong sequence', {sequence_id: 42}],
+  ])(
+    'rejects a second BIZ-41 observation with %s after the one GET',
+    async (_label, rawOverride) => {
+      const adapter = createAdapter(
+        biz41SecondRecoveryWorkItem({
+          raw: {...biz41SecondRecoveryWorkItem().raw, ...rawOverride},
+        }),
+      )
+      const markerCas = createUpdateQuery()
+      const result = await runBiz41SecondRecovery({
+        adapter,
+        updates: [markerCas],
+      })
+      expect(result).toMatchObject({outcome: 'manual_attention'})
+      expect(markerCas.set).toHaveBeenCalledWith({
+        lastError: PLANE_ONE_SHOT_BIZ41_SECOND_RECOVERY_MARKER,
+      })
+      expect(adapter.getWorkItem).toHaveBeenCalledTimes(1)
+    },
+  )
+
   it.each([
     ['map identity', {map: {...biz41RecoveryMap(), projectId: 999}}],
     ['cycle state', {cycle: {...biz41RecoveryCycle(), state: 'intake_open'}}],
@@ -1546,6 +1693,26 @@ describe('Plane one-shot reconciliation', () => {
       }),
     ).rejects.toThrow(
       'BIZ-41 provider-observation recovery cannot be combined with verify-only',
+    )
+    expect(transaction).not.toHaveBeenCalled()
+    expect(adapter.getWorkItem).not.toHaveBeenCalled()
+  })
+
+  it('rejects first and second BIZ-41 recovery flags together', async () => {
+    const adapter = createAdapter(biz41RecoveryWorkItem())
+    await expect(
+      reconcilePlaneDefectOneShot({
+        input: {
+          ...biz41RecoveryInput,
+          recoverBiz41SecondProviderObservationMismatch: true,
+        },
+        config,
+        planeAdapter: adapter,
+        enabled: true,
+        now: new Date('2026-08-22T00:01:00.000Z'),
+      }),
+    ).rejects.toThrow(
+      'BIZ-41 first and second provider-observation recovery cannot be combined',
     )
     expect(transaction).not.toHaveBeenCalled()
     expect(adapter.getWorkItem).not.toHaveBeenCalled()
